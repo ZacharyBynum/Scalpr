@@ -22,16 +22,20 @@ POINT_VALUE = 20.00
 FAST_EMA_PERIOD = 2000
 SLOW_EMA_PERIOD = 8000
 
-# 2. Asymmetric Scalp: High-probability target, wide structural stop
-TP_POINTS = 20.0                # Target $400 gross per win
-SL_POINTS = 40.0                # Risk $800 gross per loss
+# 2. Asymmetric Scalp: Tight long scalps, wide short runners
+TP_POINTS = 10.0                # Fallback (overridden by per-direction)
+SL_POINTS = 35.0                # Fallback (overridden by per-direction)
+TP_POINTS_LONG = 10.0           # Target $200 gross per long win
+SL_POINTS_LONG = 35.0           # Risk $700 gross per long loss
+TP_POINTS_SHORT = 30.0          # Target $600 gross per short win
+SL_POINTS_SHORT = 60.0          # Risk $1200 gross per short loss
 
 INITIAL_CAPITAL = 50000.0
 COMMISSION_PER_TRADE = 4.12     # NQ round-trip via NinjaTrader
 SLIPPAGE_TICKS = 1.0            # 1 tick slippage per entry+exit
 
 # 3. Confine entries strictly to the US Open liquidity surge
-ENTRY_START_UTC = 14.5          # 14:30 UTC = 8:30 AM CST (Cash Open)
+ENTRY_START_UTC = 15.0          # 15:00 UTC = 9:00 AM CST
 ENTRY_END_UTC = 16.5            # 16:30 UTC = 10:30 AM CST (Morning Volume Fades)
 
 PROP_FIRM_TARGET = 3000.0
@@ -61,6 +65,10 @@ if __name__ == "__main__":
         slippage_ticks=SLIPPAGE_TICKS,
         entry_start_utc=ENTRY_START_UTC,
         entry_end_utc=ENTRY_END_UTC,
+        tp_points_long=TP_POINTS_LONG,
+        sl_points_long=SL_POINTS_LONG,
+        tp_points_short=TP_POINTS_SHORT,
+        sl_points_short=SL_POINTS_SHORT,
     )
 
     # Build cache key from backtest parameters
@@ -70,6 +78,7 @@ if __name__ == "__main__":
         f":{FAST_EMA_PERIOD}:{SLOW_EMA_PERIOD}:{TP_POINTS}:{SL_POINTS}:{INITIAL_CAPITAL}"
         f":{COMMISSION_PER_TRADE}:{SLIPPAGE_TICKS}"
         f":{ENTRY_START_UTC}:{ENTRY_END_UTC}"
+        f":{TP_POINTS_LONG}:{SL_POINTS_LONG}:{TP_POINTS_SHORT}:{SL_POINTS_SHORT}"
     )
     bt_hash = hashlib.sha256(bt_key.encode()).hexdigest()[:16]
     cache_file = f"cache/backtest_{bt_hash}.pkl"
