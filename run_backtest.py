@@ -37,9 +37,10 @@ SLIPPAGE_TICKS = 1.0            # 1 tick slippage per entry+exit
 # 3. Confine entries strictly to the US Open liquidity surge
 ENTRY_START_UTC = 15.0          # 15:00 UTC = 9:00 AM CST
 ENTRY_END_UTC = 16.5            # 16:30 UTC = 10:30 AM CST (Morning Volume Fades)
+EXCLUDED_WEEKDAYS = (0,)        # 0=Mon — toxic day-of-week removed
 
-PROP_FIRM_TARGET = 3000.0
-PROP_FIRM_DRAWDOWN = 2000.0
+PROP_FIRM_TARGET = 9000.0
+PROP_FIRM_DRAWDOWN = 4500.0
 RUN_MONTE_CARLO = True
 MONTE_CARLO_SIMS = 1000
 MONTE_CARLO_SEED = 42
@@ -69,6 +70,7 @@ if __name__ == "__main__":
         sl_points_long=SL_POINTS_LONG,
         tp_points_short=TP_POINTS_SHORT,
         sl_points_short=SL_POINTS_SHORT,
+        excluded_weekdays=EXCLUDED_WEEKDAYS,
     )
 
     # Build cache key from backtest parameters
@@ -79,6 +81,7 @@ if __name__ == "__main__":
         f":{COMMISSION_PER_TRADE}:{SLIPPAGE_TICKS}"
         f":{ENTRY_START_UTC}:{ENTRY_END_UTC}"
         f":{TP_POINTS_LONG}:{SL_POINTS_LONG}:{TP_POINTS_SHORT}:{SL_POINTS_SHORT}"
+        f":{EXCLUDED_WEEKDAYS}"
     )
     bt_hash = hashlib.sha256(bt_key.encode()).hexdigest()[:16]
     cache_file = f"cache/backtest_{bt_hash}.pkl"

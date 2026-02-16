@@ -32,6 +32,7 @@ class EngineConfig:
     slippage_ticks: float = 0.0       # ticks of slippage per entry+exit
     entry_start_utc: float | None = None
     entry_end_utc: float | None = None
+    excluded_weekdays: tuple[int, ...] | None = None  # 0=Mon, 6=Sun
     tp_points_long: float | None = None
     sl_points_long: float | None = None
     tp_points_short: float | None = None
@@ -361,6 +362,18 @@ def precompute_signals(config: EngineConfig) -> PrecomputedSignals:
         time_mask = (hour_of_day >= config.entry_start_utc) & (hour_of_day < config.entry_end_utc)
         all_indices = all_indices[time_mask]
         all_dirs = all_dirs[time_mask]
+
+    if config.excluded_weekdays:
+        signal_ts = timestamps[all_indices]
+        # Unix epoch (1970-01-01) was a Thursday (weekday=3).
+        # (days_since_epoch + 3) % 7 gives 0=Mon..6=Sun
+        days_since_epoch = signal_ts // 86_400_000_000_000
+        weekdays = (days_since_epoch + 3) % 7
+        dow_mask = np.ones(len(all_indices), dtype=np.bool_)
+        for wd in config.excluded_weekdays:
+            dow_mask &= weekdays != wd
+        all_indices = all_indices[dow_mask]
+        all_dirs = all_dirs[dow_mask]
 
     return PrecomputedSignals(
         prices=prices, timestamps=timestamps,
