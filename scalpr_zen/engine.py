@@ -27,6 +27,9 @@ class EngineConfig:
     fast_period: int
     slow_period: int
     cache_path: str
+    initial_capital: float = 0.0
+    entry_start_utc: float | None = None  # hour of day, e.g. 14.5 = 14:30 UTC
+    entry_end_utc: float | None = None
 
 
 @njit(cache=True)
@@ -212,6 +215,9 @@ def run(config: EngineConfig) -> BacktestResult:
         "tp_points": config.tp_points,
         "sl_points": config.sl_points,
         "warmup_ticks": config.slow_period,
+        "initial_capital": config.initial_capital,
+        "entry_start_utc": config.entry_start_utc,
+        "entry_end_utc": config.entry_end_utc,
     }
 
     # 1. Load cached data
@@ -279,6 +285,21 @@ def run(config: EngineConfig) -> BacktestResult:
     sort_order = np.argsort(all_indices)
     all_indices = all_indices[sort_order]
     all_dirs = all_dirs[sort_order]
+
+    # 4b. Time-of-day filter (discard signals outside allowed window)
+    if config.entry_start_utc is not None and config.entry_end_utc is not None:
+        signal_ts = timestamps[all_indices]
+        hour_of_day = (signal_ts % 86_400_000_000_000).astype(np.float64) / 3_600_000_000_000
+        time_mask = (hour_of_day >= config.entry_start_utc) & (hour_of_day < config.entry_end_utc)
+        all_indices = all_indices[time_mask]
+        all_dirs = all_dirs[time_mask]
+
+    if len(all_indices) == 0:
+        summary = _compute_summary([], total_ticks, n_trading_days)
+        return BacktestResult(
+            success=True, error=None, strategy_name="EMA Crossover",
+            params=params, fills=[], summary=summary, buy_hold_equity=[],
+        )
 
     # 5. Simulate potential fills (parallel)
     exit_indices, exit_prices, exit_reasons, valid, mfe_arr, mae_arr = simulate_fills_gpu(
