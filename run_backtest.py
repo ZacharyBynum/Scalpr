@@ -1,5 +1,8 @@
 """scalpr_zen — run a backtest with all parameters visible at the top."""
 
+import hashlib
+import os
+import pickle
 import time
 
 from scalpr_zen.engine import EngineConfig, run
@@ -22,6 +25,7 @@ SL_POINTS = 5.0
 RUN_MONTE_CARLO = True
 MONTE_CARLO_SIMS = 1000
 MONTE_CARLO_SEED = None
+USE_CACHE = True
 # ═══════════════════════════════════════════════════════
 
 if __name__ == "__main__":
@@ -42,22 +46,49 @@ if __name__ == "__main__":
         cache_path=CACHE_PATH,
     )
 
-    print(f"Running backtest: EMA({FAST_EMA_PERIOD}/{SLOW_EMA_PERIOD}), TP={TP_POINTS}, SL={SL_POINTS}")
-    print(f"Cache: {CACHE_PATH}")
+    # Build cache key from backtest parameters
+    npz_mtime = os.path.getmtime(CACHE_PATH) if os.path.exists(CACHE_PATH) else "missing"
+    bt_key = (
+        f"{CACHE_PATH}:{npz_mtime}:{INSTRUMENT_SYMBOL}:{TICK_SIZE}:{POINT_VALUE}"
+        f":{FAST_EMA_PERIOD}:{SLOW_EMA_PERIOD}:{TP_POINTS}:{SL_POINTS}"
+    )
+    bt_hash = hashlib.sha256(bt_key.encode()).hexdigest()[:16]
+    cache_file = f"cache/backtest_{bt_hash}.pkl"
 
-    t0 = time.perf_counter()
-    result = run(config)
-    elapsed = time.perf_counter() - t0
+    result = None
+    used_cache = False
 
-    if not result.success:
-        print(f"Backtest failed: {result.error}")
+    if USE_CACHE and os.path.exists(cache_file):
+        t0 = time.perf_counter()
+        with open(cache_file, "rb") as f:
+            result = pickle.load(f)
+        elapsed = time.perf_counter() - t0
+        used_cache = True
+        print(f"Loaded backtest from cache in {elapsed:.2f}s — {result.summary.total_trades} trades")
     else:
-        report_path = write_report(result)
-        print(f"Backtest completed in {elapsed:.1f}s. Report: {report_path}")
-        if result.summary:
-            s = result.summary
-            print(f"  {s.total_trades} trades, {s.win_rate:.1%} win rate, "
-                  f"P&L: ${s.total_pnl_dollars:,.2f}, PF: {s.profit_factor:.2f}")
+        print(f"Running backtest: EMA({FAST_EMA_PERIOD}/{SLOW_EMA_PERIOD}), TP={TP_POINTS}, SL={SL_POINTS}")
+        print(f"Cache: {CACHE_PATH}")
+
+        t0 = time.perf_counter()
+        result = run(config)
+        elapsed = time.perf_counter() - t0
+
+        if not result.success:
+            print(f"Backtest failed: {result.error}")
+
+    if result and result.success:
+        if not used_cache:
+            report_path = write_report(result)
+            print(f"Backtest completed in {elapsed:.1f}s. Report: {report_path}")
+            if result.summary:
+                s = result.summary
+                print(f"  {s.total_trades} trades, {s.win_rate:.1%} win rate, "
+                      f"P&L: ${s.total_pnl_dollars:,.2f}, PF: {s.profit_factor:.2f}")
+
+            if USE_CACHE:
+                with open(cache_file, "wb") as f:
+                    pickle.dump(result, f)
+                print(f"Cached to {cache_file}")
 
         if RUN_MONTE_CARLO:
             t1 = time.perf_counter()
