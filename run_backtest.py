@@ -17,20 +17,28 @@ CACHE_PATH = "cache/nq_ticks.npz"
 INSTRUMENT_SYMBOL = "NQ"
 TICK_SIZE = 0.25
 POINT_VALUE = 20.00
-FAST_EMA_PERIOD = 50
-SLOW_EMA_PERIOD = 200
-TP_POINTS = 10.0
-SL_POINTS = 5.0
+
+# 1. Macro Trend Filter: Validates the dominant institutional flow
+FAST_EMA_PERIOD = 2000
+SLOW_EMA_PERIOD = 8000
+
+# 2. Asymmetric Scalp: High-probability target, wide structural stop
+TP_POINTS = 20.0                # Target $400 gross per win
+SL_POINTS = 40.0                # Risk $800 gross per loss
+
 INITIAL_CAPITAL = 50000.0
 COMMISSION_PER_TRADE = 4.12     # NQ round-trip via NinjaTrader
 SLIPPAGE_TICKS = 1.0            # 1 tick slippage per entry+exit
-ENTRY_START_UTC = 14.5          # 14:30 UTC = 9:30 AM ET (EST)
-ENTRY_END_UTC = 21.0            # 21:00 UTC = 4:00 PM ET (EST)
-PROP_FIRM_TARGET = 3000.0       # profit target to pass eval
-PROP_FIRM_DRAWDOWN = 2000.0     # EOD trailing drawdown limit
+
+# 3. Confine entries strictly to the US Open liquidity surge
+ENTRY_START_UTC = 14.5          # 14:30 UTC = 8:30 AM CST (Cash Open)
+ENTRY_END_UTC = 16.5            # 16:30 UTC = 10:30 AM CST (Morning Volume Fades)
+
+PROP_FIRM_TARGET = 3000.0
+PROP_FIRM_DRAWDOWN = 2000.0
 RUN_MONTE_CARLO = True
 MONTE_CARLO_SIMS = 1000
-MONTE_CARLO_SEED = None
+MONTE_CARLO_SEED = 42
 USE_CACHE = True
 # ═══════════════════════════════════════════════════════
 
