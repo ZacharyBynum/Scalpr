@@ -194,14 +194,24 @@
         <div class="value negative">${{ "{:,.0f}".format(s.max_drawdown_dollars) }}</div>
     </div>
     <div class="stat-card">
-        <div class="label">Avg Win / Loss</div>
-        <div class="value">${{ "%.0f"|format(s.avg_win) }} / ${{ "%.0f"|format(s.avg_loss) }}</div>
+        <div class="label">Sharpe Ratio</div>
+        <div class="value">{{ "%.2f"|format(s.sharpe_ratio) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Avg MFE / MAE</div>
+        <div class="value">{{ "%.2f"|format(s.avg_mfe_points) }} / {{ "%.2f"|format(s.avg_mae_points) }} pts</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Buy &amp; Hold</div>
+        <div class="value {{ 'positive' if s.buy_hold_pnl_dollars >= 0 else 'negative' }}">
+            ${{ "{:,.0f}".format(s.buy_hold_pnl_dollars) }}
+        </div>
     </div>
 </div>
 {% endif %}
 
 <div class="section">
-    <h2>Equity Curve</h2>
+    <h2>Equity Curve <span style="font-size:12px;color:#7d8590;font-weight:400">— <span style="color:#3fb950">Strategy</span> vs <span style="color:#f0883e">Buy &amp; Hold</span></span></h2>
     <div id="equity-chart"></div>
 </div>
 
@@ -270,6 +280,18 @@ const DATA = {{ result | tojson }};
     });
 
     areaSeries.setData(DATA.equity_curve);
+
+    // Buy & hold overlay (LineStyle: 0=Solid, 1=Dotted, 2=Dashed)
+    const buyHoldSeries = chart.addLineSeries({
+        color: '#f0883e',
+        lineWidth: 2,
+        lineStyle: 2,
+        crosshairMarkerVisible: false,
+        lastValueVisible: true,
+        priceLineVisible: false,
+    });
+    buyHoldSeries.setData(DATA.buy_hold_curve);
+
     chart.timeScale().fitContent();
 
     new ResizeObserver(() => {

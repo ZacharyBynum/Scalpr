@@ -33,6 +33,10 @@ def result_to_json(result: BacktestResult) -> dict:
             "max_consecutive_wins": s.max_consecutive_wins,
             "max_consecutive_losses": s.max_consecutive_losses,
             "total_ticks_processed": s.total_ticks_processed,
+            "sharpe_ratio": s.sharpe_ratio,
+            "avg_mfe_points": s.avg_mfe_points,
+            "avg_mae_points": s.avg_mae_points,
+            "buy_hold_pnl_dollars": s.buy_hold_pnl_dollars,
         }
 
     # Win/loss breakdown by direction and exit reason
@@ -57,6 +61,11 @@ def result_to_json(result: BacktestResult) -> dict:
         cumulative += daily_pnl_map[d]
         equity_curve.append({"time": d, "value": round(cumulative, 2)})
 
+    # Buy & hold equity curve
+    buy_hold_curve = [
+        {"time": d, "value": v} for d, v in result.buy_hold_equity
+    ]
+
     return {
         "strategy_name": result.strategy_name,
         "params": result.params,
@@ -64,6 +73,7 @@ def result_to_json(result: BacktestResult) -> dict:
         "equity_curve": equity_curve,
         "daily_pnl": daily_pnl,
         "win_loss": win_loss,
+        "buy_hold_curve": buy_hold_curve,
     }
 
 

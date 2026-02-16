@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from collections import defaultdict
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 
 import numpy as np
 from numba import njit
@@ -70,6 +73,10 @@ def _compute_summary(
             max_consecutive_wins=0,
             max_consecutive_losses=0,
             total_ticks_processed=total_ticks,
+            sharpe_ratio=0.0,
+            avg_mfe_points=0.0,
+            avg_mae_points=0.0,
+            buy_hold_pnl_dollars=0.0,
         )
 
     wins = [f for f in fills if f.pnl_dollars > 0]
@@ -110,6 +117,26 @@ def _compute_summary(
     n_losses = len(losses)
     total = n_wins + n_losses
 
+    # Sharpe ratio from daily P&L
+    daily_pnl: defaultdict[str, float] = defaultdict(float)
+    for f in fills:
+        date_str = datetime.fromtimestamp(
+            f.exit_time / 1e9, tz=timezone.utc
+        ).strftime("%Y-%m-%d")
+        daily_pnl[date_str] += f.pnl_dollars
+
+    daily_values = list(daily_pnl.values())
+    if len(daily_values) > 1:
+        mean_d = sum(daily_values) / len(daily_values)
+        var_d = sum((x - mean_d) ** 2 for x in daily_values) / (len(daily_values) - 1)
+        std_d = math.sqrt(var_d)
+        sharpe = (mean_d / std_d) * math.sqrt(252) if std_d > 0 else 0.0
+    else:
+        sharpe = 0.0
+
+    avg_mfe = sum(f.mfe_points for f in fills) / total
+    avg_mae = sum(f.mae_points for f in fills) / total
+
     return BacktestSummary(
         total_trades=total,
         winning_trades=n_wins,
@@ -125,6 +152,10 @@ def _compute_summary(
         max_consecutive_wins=max_consec_w,
         max_consecutive_losses=max_consec_l,
         total_ticks_processed=total_ticks,
+        sharpe_ratio=sharpe,
+        avg_mfe_points=avg_mfe,
+        avg_mae_points=avg_mae,
+        buy_hold_pnl_dollars=0.0,  # computed in run() and overridden
     )
 
 
@@ -151,6 +182,7 @@ def run(config: EngineConfig) -> BacktestResult:
             params=params,
             fills=[],
             summary=None,
+            buy_hold_equity=[],
         )
 
     total_ticks = len(prices)
@@ -162,11 +194,10 @@ def run(config: EngineConfig) -> BacktestResult:
             params=params,
             fills=[],
             summary=None,
+            buy_hold_equity=[],
         )
 
     # Add data range to params
-    from datetime import datetime, timezone
-
     first_ts = datetime.fromtimestamp(timestamps[0] / 1e9, tz=timezone.utc)
     last_ts = datetime.fromtimestamp(timestamps[-1] / 1e9, tz=timezone.utc)
     params["data_range"] = f"{first_ts.strftime('%Y-%m-%d')} to {last_ts.strftime('%Y-%m-%d')}"
@@ -188,6 +219,7 @@ def run(config: EngineConfig) -> BacktestResult:
             params=params,
             fills=[],
             summary=summary,
+            buy_hold_equity=[],
         )
 
     # 4. Merge and sort signals
@@ -201,7 +233,7 @@ def run(config: EngineConfig) -> BacktestResult:
     all_dirs = all_dirs[sort_order]
 
     # 5. Simulate potential fills (parallel)
-    exit_indices, exit_prices, exit_reasons, valid = simulate_fills_gpu(
+    exit_indices, exit_prices, exit_reasons, valid, mfe_arr, mae_arr = simulate_fills_gpu(
         prices, timestamps, all_indices, all_dirs,
         config.tp_points, config.sl_points, config.instrument.tick_size,
     )
@@ -241,10 +273,32 @@ def run(config: EngineConfig) -> BacktestResult:
             pnl_points=pnl_points,
             pnl_dollars=pnl_points * point_value,
             exit_reason=exit_reason,
+            mfe_points=float(mfe_arr[i]),
+            mae_points=float(mae_arr[i]),
         ))
 
     # 8. Compute summary
     summary = _compute_summary(fills, total_ticks)
+
+    # 9. Buy & hold equity curve (daily closing prices)
+    day_ns = np.int64(86400_000_000_000)
+    days = timestamps // day_ns
+    day_changes = np.where(np.diff(days))[0]
+    close_indices = np.append(day_changes, len(days) - 1)
+    close_prices = prices[close_indices]
+    close_timestamps = timestamps[close_indices]
+
+    first_price = float(close_prices[0])
+    buy_hold_equity: list[tuple[str, float]] = []
+    for idx in range(len(close_prices)):
+        date_str = datetime.fromtimestamp(
+            int(close_timestamps[idx]) / 1e9, tz=timezone.utc
+        ).strftime("%Y-%m-%d")
+        pnl = (float(close_prices[idx]) - first_price) * point_value
+        buy_hold_equity.append((date_str, round(pnl, 2)))
+
+    buy_hold_total = (float(close_prices[-1]) - first_price) * point_value
+    summary = replace(summary, buy_hold_pnl_dollars=round(buy_hold_total, 2))
 
     return BacktestResult(
         success=True,
@@ -253,4 +307,5 @@ def run(config: EngineConfig) -> BacktestResult:
         params=params,
         fills=fills,
         summary=summary,
+        buy_hold_equity=buy_hold_equity,
     )

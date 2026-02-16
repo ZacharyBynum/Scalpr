@@ -40,6 +40,8 @@ class Fill:
     pnl_points: float
     pnl_dollars: float
     exit_reason: ExitReason
+    mfe_points: float
+    mae_points: float
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,10 @@ class BacktestSummary:
     max_consecutive_wins: int
     max_consecutive_losses: int
     total_ticks_processed: int
+    sharpe_ratio: float
+    avg_mfe_points: float
+    avg_mae_points: float
+    buy_hold_pnl_dollars: float
 
 
 @dataclass(frozen=True)
@@ -68,6 +74,40 @@ class BacktestResult:
     params: dict[str, object]
     fills: list[Fill]
     summary: BacktestSummary | None
+    buy_hold_equity: list[tuple[str, float]]
+
+
+@dataclass(frozen=True)
+class MonteCarloStats:
+    n_simulations: int
+    probability_of_profit: float
+    median_final_pnl: float
+    final_pnl_5th: float
+    final_pnl_25th: float
+    final_pnl_75th: float
+    final_pnl_95th: float
+    median_max_drawdown: float
+    max_drawdown_5th: float
+    max_drawdown_25th: float
+    max_drawdown_75th: float
+    max_drawdown_95th: float
+    original_final_pnl: float
+    original_max_drawdown: float
+
+
+@dataclass(frozen=True)
+class MonteCarloResult:
+    success: bool
+    error: str | None
+    strategy_name: str
+    params: dict[str, object]
+    stats: MonteCarloStats | None
+    curve_5th: list[float]
+    curve_25th: list[float]
+    curve_50th: list[float]
+    curve_75th: list[float]
+    curve_95th: list[float]
+    original_curve: list[float]
 
 
 def snap_to_tick(price: float, tick_size: float = 0.25) -> float:

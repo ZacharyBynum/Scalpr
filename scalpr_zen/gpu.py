@@ -57,13 +57,15 @@ def simulate_fills_gpu(
     tp_points: float,
     sl_points: float,
     tick_size: float,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     n_signals = len(signal_indices)
     n_prices = len(prices)
     exit_indices = np.empty(n_signals, dtype=np.int64)
     exit_prices = np.empty(n_signals, dtype=np.float32)
     exit_reasons = np.empty(n_signals, dtype=np.int8)
     valid = np.ones(n_signals, dtype=np.bool_)
+    mfe_points = np.zeros(n_signals, dtype=np.float32)
+    mae_points = np.zeros(n_signals, dtype=np.float32)
 
     tp_f32 = np.float32(tp_points)
     sl_f32 = np.float32(sl_points)
@@ -84,9 +86,24 @@ def simulate_fills_gpu(
         tp_px = np.float32(round(tp_px / tick_size) * tick_size)
         sl_px = np.float32(round(sl_px / tick_size) * tick_size)
 
+        mfe = np.float32(0.0)
+        mae = np.float32(0.0)
         found = False
         for i in range(entry_idx + 1, n_prices):
             px = prices[i]
+
+            # Track MFE/MAE
+            if d == 1:
+                fav = px - entry_px
+                adv = entry_px - px
+            else:
+                fav = entry_px - px
+                adv = px - entry_px
+            if fav > mfe:
+                mfe = fav
+            if adv > mae:
+                mae = adv
+
             # Check SL first (worst case assumption)
             if d == 1:
                 if px <= sl_px:
@@ -121,4 +138,7 @@ def simulate_fills_gpu(
             exit_prices[s] = np.float32(0.0)
             exit_reasons[s] = -1
 
-    return exit_indices, exit_prices, exit_reasons, valid
+        mfe_points[s] = mfe
+        mae_points[s] = mae
+
+    return exit_indices, exit_prices, exit_reasons, valid, mfe_points, mae_points
