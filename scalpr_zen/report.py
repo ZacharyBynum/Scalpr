@@ -73,10 +73,17 @@ def format_report(result: BacktestResult, run_timestamp: datetime) -> str:
         w(f"Total trades:        {s.total_trades}")
         w(f"Win rate:            {s.win_rate:.1%} ({s.winning_trades}W / {s.losing_trades}L)")
         w(f"Total P&L:           {_fmt_dollars(s.total_pnl_dollars)}")
-        w(f"Profit factor:       {s.profit_factor:.2f}")
+        w(f"Profit factor:       {s.profit_factor:.3f}")
         w(f"Avg win / Avg loss:  {_fmt_dollars(s.avg_win)} / {_fmt_dollars(s.avg_loss)}")
         w(f"Max drawdown:        {_fmt_dollars(s.max_drawdown_dollars)}")
         w(f"Max consec W/L:      {s.max_consecutive_wins} / {s.max_consecutive_losses}")
+        w("")
+        w("── Validation " + "─" * 65)
+        w(f"Expectancy:          {_fmt_dollars(s.expectancy_per_trade)} / trade        target: > $0")
+        w(f"t-statistic:         {s.t_stat:.2f}                      target: ≥ 2.0")
+        w(f"p-value:             {s.p_value:.6f}                  target: < 0.05")
+        w(f"SQN:                 {s.sqn:.2f}                      target: ≥ 2.0")
+        w(f"Days profitable:     {s.pct_days_profitable:.1%}                     target: ≥ 50%")
     elif result.error:
         w(f"ERROR: {result.error}")
 

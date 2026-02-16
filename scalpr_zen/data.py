@@ -86,9 +86,15 @@ def preprocess_to_cache(
                 ticks_so_far = sum(len(r[0]) for r in results_by_idx.values())
                 print(f"  Loaded {done_count}/{len(tasks)} days... {ticks_so_far:,} ticks so far")
 
+    rollover_indices: list[int] = []
+    prev_iid: int | None = None
     for idx in range(len(tasks)):
         p, t = results_by_idx[idx]
         if len(p) > 0:
+            current_iid = tasks[idx][1]
+            if prev_iid is not None and current_iid != prev_iid:
+                rollover_indices.append(total_ticks)
+            prev_iid = current_iid
             all_prices.append(p)
             all_timestamps.append(t)
             total_ticks += len(p)
@@ -100,10 +106,16 @@ def preprocess_to_cache(
     timestamps = np.concatenate(all_timestamps)
 
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-    np.savez_compressed(cache_path, prices=prices, timestamps=timestamps)
+    np.savez_compressed(
+        cache_path,
+        prices=prices,
+        timestamps=timestamps,
+        rollover_indices=np.array(rollover_indices, dtype=np.int64),
+    )
     return total_ticks
 
 
-def load_cache(cache_path: str) -> tuple[np.ndarray, np.ndarray]:
+def load_cache(cache_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     data = np.load(cache_path)
-    return data["prices"], data["timestamps"]
+    rollover_indices = data["rollover_indices"] if "rollover_indices" in data else np.array([], dtype=np.int64)
+    return data["prices"], data["timestamps"], rollover_indices

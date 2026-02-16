@@ -53,9 +53,28 @@ def filter_overlapping(
     return keep
 
 
+@njit(cache=True)
+def invalidate_cross_rollover(
+    signal_indices: np.ndarray,
+    exit_indices: np.ndarray,
+    valid: np.ndarray,
+    rollover_indices: np.ndarray,
+) -> None:
+    for i in range(len(signal_indices)):
+        if not valid[i]:
+            continue
+        entry_idx = signal_indices[i]
+        exit_idx = exit_indices[i]
+        for r in rollover_indices:
+            if entry_idx < r <= exit_idx:
+                valid[i] = False
+                break
+
+
 def _compute_summary(
     fills: list[Fill],
     total_ticks: int,
+    n_trading_days: int,
 ) -> BacktestSummary:
     if not fills:
         return BacktestSummary(
@@ -77,6 +96,13 @@ def _compute_summary(
             avg_mfe_points=0.0,
             avg_mae_points=0.0,
             buy_hold_pnl_dollars=0.0,
+            buy_hold_sharpe=0.0,
+            buy_hold_max_dd=0.0,
+            expectancy_per_trade=0.0,
+            t_stat=0.0,
+            p_value=1.0,
+            sqn=0.0,
+            pct_days_profitable=0.0,
         )
 
     wins = [f for f in fills if f.pnl_dollars > 0]
@@ -126,6 +152,8 @@ def _compute_summary(
         daily_pnl[date_str] += f.pnl_dollars
 
     daily_values = list(daily_pnl.values())
+    n_zero_days = n_trading_days - len(daily_values)
+    daily_values.extend([0.0] * n_zero_days)
     if len(daily_values) > 1:
         mean_d = sum(daily_values) / len(daily_values)
         var_d = sum((x - mean_d) ** 2 for x in daily_values) / (len(daily_values) - 1)
@@ -136,6 +164,15 @@ def _compute_summary(
 
     avg_mfe = sum(f.mfe_points for f in fills) / total
     avg_mae = sum(f.mae_points for f in fills) / total
+
+    # Validation metrics
+    mean_pnl = (gross_profit + gross_loss) / total
+    var_pnl = sum((f.pnl_dollars - mean_pnl) ** 2 for f in fills) / (total - 1) if total > 1 else 0.0
+    std_pnl = math.sqrt(var_pnl) if var_pnl > 0 else 0.0
+    t_stat_val = (mean_pnl / (std_pnl / math.sqrt(total))) if std_pnl > 0 else 0.0
+    p_val = 2.0 * (1.0 - 0.5 * math.erfc(-abs(t_stat_val) / math.sqrt(2))) if t_stat_val != 0 else 1.0
+    sqn_val = math.sqrt(min(total, 100)) * mean_pnl / std_pnl if std_pnl > 0 else 0.0
+    pct_days_prof = sum(1 for v in daily_values if v > 0) / len(daily_values) if daily_values else 0.0
 
     return BacktestSummary(
         total_trades=total,
@@ -156,6 +193,13 @@ def _compute_summary(
         avg_mfe_points=avg_mfe,
         avg_mae_points=avg_mae,
         buy_hold_pnl_dollars=0.0,  # computed in run() and overridden
+        buy_hold_sharpe=0.0,
+        buy_hold_max_dd=0.0,
+        expectancy_per_trade=mean_pnl,
+        t_stat=t_stat_val,
+        p_value=p_val,
+        sqn=sqn_val,
+        pct_days_profitable=pct_days_prof,
     )
 
 
@@ -173,7 +217,7 @@ def run(config: EngineConfig) -> BacktestResult:
 
     # 1. Load cached data
     try:
-        prices, timestamps = load_cache(config.cache_path)
+        prices, timestamps, rollover_indices = load_cache(config.cache_path)
     except FileNotFoundError:
         return BacktestResult(
             success=False,
@@ -202,6 +246,11 @@ def run(config: EngineConfig) -> BacktestResult:
     last_ts = datetime.fromtimestamp(timestamps[-1] / 1e9, tz=timezone.utc)
     params["data_range"] = f"{first_ts.strftime('%Y-%m-%d')} to {last_ts.strftime('%Y-%m-%d')}"
 
+    # Count trading days for Sharpe ratio
+    day_ns = np.int64(86400_000_000_000)
+    days = timestamps // day_ns
+    n_trading_days = len(np.unique(days))
+
     # 2. Compute EMAs
     fast_ema = compute_ema(prices, config.fast_period)
     slow_ema = compute_ema(prices, config.slow_period)
@@ -211,7 +260,7 @@ def run(config: EngineConfig) -> BacktestResult:
     long_indices, short_indices = find_signals(fast_ema, slow_ema, warmup)
 
     if len(long_indices) == 0 and len(short_indices) == 0:
-        summary = _compute_summary([], total_ticks)
+        summary = _compute_summary([], total_ticks, n_trading_days)
         return BacktestResult(
             success=True,
             error=None,
@@ -238,13 +287,16 @@ def run(config: EngineConfig) -> BacktestResult:
         config.tp_points, config.sl_points, config.instrument.tick_size,
     )
 
-    # 6. Sequential overlap filter
+    # 6. Invalidate trades spanning contract rollovers
+    invalidate_cross_rollover(all_indices, exit_indices, valid, rollover_indices)
+
+    # 7. Sequential overlap filter
     keep = filter_overlapping(
         all_indices, exit_indices, all_dirs,
         exit_prices, exit_reasons, valid,
     )
 
-    # 7. Build Fill objects
+    # 8. Build Fill objects
     point_value = config.instrument.point_value
     fills: list[Fill] = []
     trade_num = 0
@@ -277,28 +329,68 @@ def run(config: EngineConfig) -> BacktestResult:
             mae_points=float(mae_arr[i]),
         ))
 
-    # 8. Compute summary
-    summary = _compute_summary(fills, total_ticks)
+    # 9. Compute summary
+    summary = _compute_summary(fills, total_ticks, n_trading_days)
 
-    # 9. Buy & hold equity curve (daily closing prices)
-    day_ns = np.int64(86400_000_000_000)
-    days = timestamps // day_ns
+    # 10. Buy & hold per-segment (avoids phantom P&L from rollover gaps)
+    seg_boundaries = np.concatenate([
+        np.array([0], dtype=np.int64),
+        rollover_indices,
+        np.array([len(prices)], dtype=np.int64),
+    ])
+
+    buy_hold_total = 0.0
+    for seg in range(len(seg_boundaries) - 1):
+        seg_start = seg_boundaries[seg]
+        seg_end = seg_boundaries[seg + 1]
+        buy_hold_total += (float(prices[seg_end - 1]) - float(prices[seg_start])) * point_value
+
+    # Buy & hold equity curve (daily closing prices, per-segment)
     day_changes = np.where(np.diff(days))[0]
     close_indices = np.append(day_changes, len(days) - 1)
-    close_prices = prices[close_indices]
     close_timestamps = timestamps[close_indices]
 
-    first_price = float(close_prices[0])
+    running_pnl = 0.0
+    seg_idx = 0
+    seg_first_price = float(prices[seg_boundaries[0]])
     buy_hold_equity: list[tuple[str, float]] = []
-    for idx in range(len(close_prices)):
-        date_str = datetime.fromtimestamp(
-            int(close_timestamps[idx]) / 1e9, tz=timezone.utc
-        ).strftime("%Y-%m-%d")
-        pnl = (float(close_prices[idx]) - first_price) * point_value
-        buy_hold_equity.append((date_str, round(pnl, 2)))
+    bh_daily_values: list[float] = []
+    prev_equity = 0.0
 
-    buy_hold_total = (float(close_prices[-1]) - first_price) * point_value
-    summary = replace(summary, buy_hold_pnl_dollars=round(buy_hold_total, 2))
+    for ci in close_indices:
+        # Advance to the correct segment for this close index
+        while seg_idx < len(seg_boundaries) - 2 and ci >= seg_boundaries[seg_idx + 1]:
+            seg_end = seg_boundaries[seg_idx + 1]
+            running_pnl += (float(prices[seg_end - 1]) - seg_first_price) * point_value
+            seg_idx += 1
+            seg_first_price = float(prices[seg_boundaries[seg_idx]])
+
+        equity = running_pnl + (float(prices[ci]) - seg_first_price) * point_value
+        date_str = datetime.fromtimestamp(
+            int(close_timestamps[len(buy_hold_equity)]) / 1e9, tz=timezone.utc
+        ).strftime("%Y-%m-%d")
+        buy_hold_equity.append((date_str, round(equity, 2)))
+        bh_daily_values.append(equity - prev_equity)
+        prev_equity = equity
+
+    # Buy & hold Sharpe and max drawdown
+    if len(bh_daily_values) > 1:
+        bh_daily_pnl = np.array(bh_daily_values, dtype=np.float64)
+        bh_mean = float(np.mean(bh_daily_pnl))
+        bh_std = float(np.std(bh_daily_pnl, ddof=1))
+        bh_sharpe = (bh_mean / bh_std) * math.sqrt(252) if bh_std > 0 else 0.0
+        bh_cumulative = np.cumsum(np.insert(bh_daily_pnl, 0, 0.0))
+        bh_peak = np.maximum.accumulate(bh_cumulative)
+        bh_max_dd = float(np.min(bh_cumulative - bh_peak))
+    else:
+        bh_sharpe = 0.0
+        bh_max_dd = 0.0
+
+    summary = replace(summary,
+        buy_hold_pnl_dollars=round(buy_hold_total, 2),
+        buy_hold_sharpe=round(bh_sharpe, 4),
+        buy_hold_max_dd=round(bh_max_dd, 2),
+    )
 
     return BacktestResult(
         success=True,

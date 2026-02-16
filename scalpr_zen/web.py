@@ -43,6 +43,13 @@ def result_to_json(result: BacktestResult) -> dict:
             "avg_mfe_points": s.avg_mfe_points,
             "avg_mae_points": s.avg_mae_points,
             "buy_hold_pnl_dollars": s.buy_hold_pnl_dollars,
+            "buy_hold_sharpe": s.buy_hold_sharpe,
+            "buy_hold_max_dd": s.buy_hold_max_dd,
+            "expectancy_per_trade": s.expectancy_per_trade,
+            "t_stat": s.t_stat,
+            "p_value": s.p_value,
+            "sqn": s.sqn,
+            "pct_days_profitable": s.pct_days_profitable,
         }
 
     # Win/loss breakdown by direction and exit reason
@@ -51,11 +58,25 @@ def result_to_json(result: BacktestResult) -> dict:
         key = f"{f.exit_reason.value.lower()}_{f.direction.value.lower()}"
         win_loss[key] += 1
 
-    # Daily P&L aggregation
+    # Daily, hourly, and day-of-week P&L aggregation
     daily_pnl_map: defaultdict[str, float] = defaultdict(float)
+    hourly_map: dict[int, list[float]] = {}
+    dow_map: dict[int, list[float]] = {}
     for f in result.fills:
-        date_str = _ns_to_date_str(f.exit_time)
-        daily_pnl_map[date_str] += f.pnl_dollars
+        dt = datetime.fromtimestamp(f.exit_time / 1e9, tz=timezone.utc)
+        daily_pnl_map[dt.strftime("%Y-%m-%d")] += f.pnl_dollars
+        hourly_map.setdefault(dt.hour, []).append(f.pnl_dollars)
+        dow_map.setdefault(dt.weekday(), []).append(f.pnl_dollars)
+
+    dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    hourly_avg = [
+        {"hour": h, "avg_pnl": round(sum(v) / len(v), 2), "count": len(v)}
+        for h, v in sorted(hourly_map.items())
+    ]
+    dow_avg = [
+        {"day": dow_names[d], "avg_pnl": round(sum(v) / len(v), 2), "count": len(v)}
+        for d, v in sorted(dow_map.items())
+    ]
 
     sorted_dates = sorted(daily_pnl_map.keys())
     daily_pnl = [{"date": d, "pnl": round(daily_pnl_map[d], 2)} for d in sorted_dates]
@@ -98,6 +119,8 @@ def result_to_json(result: BacktestResult) -> dict:
         "win_loss": win_loss,
         "buy_hold_curve": buy_hold_curve,
         "trades": trades,
+        "hourly_avg": hourly_avg,
+        "dow_avg": dow_avg,
     }
 
 

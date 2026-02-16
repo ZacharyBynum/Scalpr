@@ -78,7 +78,7 @@ def test_simulate_fills_long_tp():
     signal_indices = np.array([0], dtype=np.int64)
     signal_dirs = np.array([1], dtype=np.int64)  # LONG
 
-    exit_idx, exit_px, exit_reason, valid = simulate_fills_gpu(
+    exit_idx, exit_px, exit_reason, valid, _, _ = simulate_fills_gpu(
         prices, timestamps, signal_indices, signal_dirs,
         tp_points=10.0, sl_points=5.0, tick_size=0.25,
     )
@@ -93,7 +93,7 @@ def test_simulate_fills_long_sl():
     signal_indices = np.array([0], dtype=np.int64)
     signal_dirs = np.array([1], dtype=np.int64)  # LONG
 
-    exit_idx, exit_px, exit_reason, valid = simulate_fills_gpu(
+    exit_idx, exit_px, exit_reason, valid, _, _ = simulate_fills_gpu(
         prices, timestamps, signal_indices, signal_dirs,
         tp_points=10.0, sl_points=5.0, tick_size=0.25,
     )
@@ -108,7 +108,7 @@ def test_simulate_fills_short_tp():
     signal_indices = np.array([0], dtype=np.int64)
     signal_dirs = np.array([-1], dtype=np.int64)  # SHORT
 
-    exit_idx, exit_px, exit_reason, valid = simulate_fills_gpu(
+    exit_idx, exit_px, exit_reason, valid, _, _ = simulate_fills_gpu(
         prices, timestamps, signal_indices, signal_dirs,
         tp_points=10.0, sl_points=5.0, tick_size=0.25,
     )
@@ -126,7 +126,7 @@ def test_simulate_fills_sl_checked_before_tp():
     signal_indices = np.array([0], dtype=np.int64)
     signal_dirs = np.array([1], dtype=np.int64)
 
-    exit_idx, exit_px, exit_reason, valid = simulate_fills_gpu(
+    exit_idx, exit_px, exit_reason, valid, _, _ = simulate_fills_gpu(
         prices, timestamps, signal_indices, signal_dirs,
         tp_points=10.0, sl_points=5.0, tick_size=0.25,
     )
@@ -140,7 +140,7 @@ def test_simulate_fills_no_exit():
     signal_indices = np.array([0], dtype=np.int64)
     signal_dirs = np.array([1], dtype=np.int64)
 
-    exit_idx, exit_px, exit_reason, valid = simulate_fills_gpu(
+    exit_idx, exit_px, exit_reason, valid, _, _ = simulate_fills_gpu(
         prices, timestamps, signal_indices, signal_dirs,
         tp_points=100.0, sl_points=100.0, tick_size=0.25,
     )

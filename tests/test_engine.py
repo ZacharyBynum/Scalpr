@@ -63,7 +63,7 @@ def test_filter_overlapping_skips_invalid():
 
 
 def test_compute_summary_empty():
-    s = _compute_summary([], 1000)
+    s = _compute_summary([], 1000, 0)
     assert s.total_trades == 0
     assert s.win_rate == 0.0
     assert s.total_ticks_processed == 1000
@@ -71,11 +71,11 @@ def test_compute_summary_empty():
 
 def test_compute_summary_basic():
     fills = [
-        Fill(1, Direction.LONG, 100, 21000.0, 200, 21010.0, 10.0, 200.0, ExitReason.TP),
-        Fill(2, Direction.SHORT, 300, 21010.0, 400, 21015.0, -5.0, -100.0, ExitReason.SL),
-        Fill(3, Direction.LONG, 500, 21000.0, 600, 21010.0, 10.0, 200.0, ExitReason.TP),
+        Fill(1, Direction.LONG, 100, 21000.0, 200, 21010.0, 10.0, 200.0, ExitReason.TP, 10.0, 0.0),
+        Fill(2, Direction.SHORT, 300, 21010.0, 400, 21015.0, -5.0, -100.0, ExitReason.SL, 0.0, 5.0),
+        Fill(3, Direction.LONG, 500, 21000.0, 600, 21010.0, 10.0, 200.0, ExitReason.TP, 10.0, 0.0),
     ]
-    s = _compute_summary(fills, 5000)
+    s = _compute_summary(fills, 5000, 1)
     assert s.total_trades == 3
     assert s.winning_trades == 2
     assert s.losing_trades == 1
@@ -86,6 +86,9 @@ def test_compute_summary_basic():
     assert abs(s.profit_factor - 4.0) < 0.001
     assert s.max_consecutive_wins == 1  # W, L, W — no consecutive
     assert s.max_consecutive_losses == 1
+    assert abs(s.expectancy_per_trade - 100.0) < 0.001
+    assert s.t_stat > 0
+    assert s.p_value < 1.0
 
 
 def test_run_missing_cache():

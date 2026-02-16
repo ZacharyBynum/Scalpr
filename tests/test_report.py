@@ -22,6 +22,8 @@ def _make_result() -> BacktestResult:
             pnl_points=10.0,
             pnl_dollars=200.0,
             exit_reason=ExitReason.TP,
+            mfe_points=10.0,
+            mae_points=0.0,
         ),
         Fill(
             trade_number=2,
@@ -33,6 +35,8 @@ def _make_result() -> BacktestResult:
             pnl_points=-5.0,
             pnl_dollars=-100.0,
             exit_reason=ExitReason.SL,
+            mfe_points=0.0,
+            mae_points=5.0,
         ),
     ]
     summary = BacktestSummary(
@@ -50,6 +54,17 @@ def _make_result() -> BacktestResult:
         max_consecutive_wins=1,
         max_consecutive_losses=1,
         total_ticks_processed=500000,
+        sharpe_ratio=1.0,
+        avg_mfe_points=5.0,
+        avg_mae_points=2.5,
+        buy_hold_pnl_dollars=50.0,
+        buy_hold_sharpe=0.8,
+        buy_hold_max_dd=-50.0,
+        expectancy_per_trade=50.0,
+        t_stat=1.0,
+        p_value=0.32,
+        sqn=0.5,
+        pct_days_profitable=0.5,
     )
     return BacktestResult(
         success=True,
@@ -68,6 +83,7 @@ def _make_result() -> BacktestResult:
         },
         fills=fills,
         summary=summary,
+        buy_hold_equity=[],
     )
 
 
@@ -113,7 +129,10 @@ def test_format_report_contains_summary():
     assert "50.0%" in text
     assert "1W / 1L" in text
     assert "+$100.00" in text  # total P&L
-    assert "2.00" in text      # profit factor
+    assert "2.000" in text     # profit factor (3dp)
+    assert "Validation" in text
+    assert "t-statistic" in text
+    assert "target:" in text
 
 
 def test_format_report_failure():
@@ -124,6 +143,7 @@ def test_format_report_failure():
         params={"instrument": "NQ"},
         fills=[],
         summary=None,
+        buy_hold_equity=[],
     )
     now = datetime(2026, 2, 16, 14, 30, 0, tzinfo=timezone.utc)
     text = format_report(result, now)

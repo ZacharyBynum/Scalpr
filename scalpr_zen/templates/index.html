@@ -92,8 +92,18 @@
             grid-template-columns: 1fr 2fr;
             gap: 20px;
         }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .winloss-chart-container {
             height: 260px;
+        }
+        .chart-sm { height: 220px; }
+        .stat-card .compare { font-size: 11px; color: #484f58; margin-top: 3px; }
+        .stat-card .compare span { font-weight: 600; }
+        .stat-card .target { font-size: 10px; color: #484f58; margin-top: 3px; }
+        .stat-card[title] { cursor: help; }
+        .section-label-sm {
+            font-size: 11px; color: #484f58; text-transform: uppercase;
+            letter-spacing: 0.5px; margin-bottom: 8px;
         }
 
         /* Calendar heatmap */
@@ -247,21 +257,6 @@
             outline: none;
             border-color: #58a6ff;
         }
-        .export-btn {
-            background: #21262d;
-            color: #c9d1d9;
-            border: 1px solid #30363d;
-            border-radius: 4px;
-            padding: 6px 14px;
-            font-family: inherit;
-            font-size: 12px;
-            cursor: pointer;
-            transition: background 0.15s;
-        }
-        .export-btn:hover {
-            background: #30363d;
-            border-color: #484f58;
-        }
         .trade-count {
             font-size: 12px;
             color: #7d8590;
@@ -285,41 +280,86 @@
 {% if result.summary %}
 {% set s = result.summary %}
 <div class="stats">
-    <div class="stat-card">
+    <div class="stat-card" title="Total number of trades executed">
         <div class="label">Trades</div>
         <div class="value">{{ "{:,}".format(s.total_trades) }}</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" title="Percentage of trades that were profitable">
         <div class="label">Win Rate</div>
         <div class="value">{{ "%.1f"|format(s.win_rate * 100) }}%</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" title="Total strategy P&L vs buy-and-hold P&L">
         <div class="label">Total P&amp;L</div>
         <div class="value {{ 'positive' if s.total_pnl_dollars >= 0 else 'negative' }}">
             ${{ "{:,.0f}".format(s.total_pnl_dollars) }}
         </div>
+        {% set pnl_diff = s.total_pnl_dollars - s.buy_hold_pnl_dollars %}
+        <div class="compare">B&amp;H ${{ "{:,.0f}".format(s.buy_hold_pnl_dollars) }}
+            <span style="color:{{ '#3fb950' if pnl_diff >= 0 else '#f85149' }}">({{ "{:+,.0f}".format(pnl_diff) }})</span>
+        </div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" title="Gross profit / gross loss — measures edge quality">
         <div class="label">Profit Factor</div>
-        <div class="value">{{ "%.2f"|format(s.profit_factor) }}</div>
+        <div class="value">{{ "%.3f"|format(s.profit_factor) }}</div>
     </div>
-    <div class="stat-card">
-        <div class="label">Max Drawdown</div>
-        <div class="value negative">${{ "{:,.0f}".format(s.max_drawdown_dollars) }}</div>
-    </div>
-    <div class="stat-card">
+    <div class="stat-card" title="Annualized risk-adjusted return vs buy-and-hold">
         <div class="label">Sharpe Ratio</div>
         <div class="value">{{ "%.2f"|format(s.sharpe_ratio) }}</div>
+        {% set sharpe_diff = s.sharpe_ratio - s.buy_hold_sharpe %}
+        <div class="compare">B&amp;H {{ "%.2f"|format(s.buy_hold_sharpe) }}
+            <span style="color:{{ '#3fb950' if sharpe_diff >= 0 else '#f85149' }}">({{ "%+.2f"|format(sharpe_diff) }})</span>
+        </div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" title="Largest peak-to-trough decline vs buy-and-hold">
+        <div class="label">Max Drawdown</div>
+        <div class="value negative">${{ "{:,.0f}".format(s.max_drawdown_dollars) }}</div>
+        {% set dd_diff = s.max_drawdown_dollars - s.buy_hold_max_dd %}
+        <div class="compare">B&amp;H ${{ "{:,.0f}".format(s.buy_hold_max_dd) }}
+            <span style="color:{{ '#3fb950' if dd_diff >= 0 else '#f85149' }}">({{ "{:+,.0f}".format(dd_diff) }})</span>
+        </div>
+    </div>
+    <div class="stat-card" title="Average best/worst excursion before exit">
         <div class="label">Avg MFE / MAE</div>
         <div class="value">{{ "%.2f"|format(s.avg_mfe_points) }} / {{ "%.2f"|format(s.avg_mae_points) }} pts</div>
     </div>
-    <div class="stat-card">
-        <div class="label">Buy &amp; Hold</div>
-        <div class="value {{ 'positive' if s.buy_hold_pnl_dollars >= 0 else 'negative' }}">
-            ${{ "{:,.0f}".format(s.buy_hold_pnl_dollars) }}
+</div>
+
+<div class="section-label-sm">Statistical Validation</div>
+<div class="stats">
+    <div class="stat-card" title="Average profit per trade — must exceed expected costs">
+        <div class="label">Expectancy</div>
+        <div class="value {{ 'positive' if s.expectancy_per_trade > 0 else 'negative' }}">
+            ${{ "%.2f"|format(s.expectancy_per_trade) }}
         </div>
+        <div class="target">target: > $0</div>
+    </div>
+    <div class="stat-card" title="Statistical significance of mean return vs zero (normal approx)">
+        <div class="label">t-stat</div>
+        <div class="value {{ 'positive' if s.t_stat >= 2.0 else 'negative' }}">
+            {{ "%.2f"|format(s.t_stat) }}
+        </div>
+        <div class="target">target: &ge; 2.0</div>
+    </div>
+    <div class="stat-card" title="Probability that observed edge is due to chance alone">
+        <div class="label">p-value</div>
+        <div class="value {{ 'positive' if s.p_value < 0.05 else 'negative' }}">
+            {{ "%.4f"|format(s.p_value) }}
+        </div>
+        <div class="target">target: &lt; 0.05</div>
+    </div>
+    <div class="stat-card" title="Van Tharp System Quality Number — edge per unit of variance (sqrt capped at 100 trades)">
+        <div class="label">SQN</div>
+        <div class="value {{ 'positive' if s.sqn >= 2.0 else 'negative' }}">
+            {{ "%.2f"|format(s.sqn) }}
+        </div>
+        <div class="target">target: &ge; 2.0</div>
+    </div>
+    <div class="stat-card" title="Proportion of trading days with positive total P&L">
+        <div class="label">Days Profitable</div>
+        <div class="value {{ 'positive' if s.pct_days_profitable >= 0.5 else 'negative' }}">
+            {{ "%.1f"|format(s.pct_days_profitable * 100) }}%
+        </div>
+        <div class="target">target: &ge; 50%</div>
     </div>
 </div>
 {% endif %}
@@ -353,6 +393,17 @@
                 <div class="heatmap-grid" id="heatmap-grid"></div>
             </div>
         </div>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="section">
+        <h2>Avg P&amp;L by Hour (UTC)</h2>
+        <div class="chart-sm"><canvas id="hourly-chart"></canvas></div>
+    </div>
+    <div class="section">
+        <h2>Avg P&amp;L by Day of Week</h2>
+        <div class="chart-sm"><canvas id="dow-chart"></canvas></div>
     </div>
 </div>
 
@@ -442,7 +493,6 @@
             <option value="TP">TP Only</option>
             <option value="SL">SL Only</option>
         </select>
-        <button id="export-csv" class="export-btn">Export CSV</button>
         <span class="trade-count" id="trade-count"></span>
     </div>
     <div class="trade-log-wrapper">
@@ -684,6 +734,74 @@ const MC_DATA = {{ mc | tojson }};
     });
 })();
 
+// ── Avg P&L by Hour ────────────────────────────────────
+(function() {
+    const hourly = DATA.hourly_avg;
+    if (!hourly || hourly.length === 0) return;
+    const ctx = document.getElementById('hourly-chart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: hourly.map(h => h.hour + ':00'),
+            datasets: [{
+                data: hourly.map(h => h.avg_pnl),
+                backgroundColor: hourly.map(h => h.avg_pnl >= 0 ? '#3fb950' : '#f85149'),
+                borderRadius: 2,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false },
+                tooltip: { backgroundColor: '#1c2128', borderColor: '#30363d', borderWidth: 1,
+                    bodyFont: { family: '"Cascadia Code", monospace' },
+                    callbacks: { label: function(ctx) {
+                        const h = hourly[ctx.dataIndex];
+                        const sign = h.avg_pnl >= 0 ? '+' : '';
+                        return sign + '$' + h.avg_pnl.toFixed(2) + '  (' + h.count.toLocaleString() + ' trades)';
+                    }}}},
+            scales: {
+                x: { grid: { color: '#21262d' }, ticks: { color: '#7d8590', font: { family: '"Cascadia Code", monospace', size: 10 } } },
+                y: { grid: { color: '#21262d' }, ticks: { color: '#7d8590', font: { family: '"Cascadia Code", monospace' },
+                    callback: function(v) { return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2); } } }
+            }
+        }
+    });
+})();
+
+// ── Avg P&L by Day of Week ─────────────────────────────
+(function() {
+    const dow = DATA.dow_avg;
+    if (!dow || dow.length === 0) return;
+    const ctx = document.getElementById('dow-chart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: dow.map(d => d.day),
+            datasets: [{
+                data: dow.map(d => d.avg_pnl),
+                backgroundColor: dow.map(d => d.avg_pnl >= 0 ? '#3fb950' : '#f85149'),
+                borderRadius: 2, barPercentage: 0.6,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false },
+                tooltip: { backgroundColor: '#1c2128', borderColor: '#30363d', borderWidth: 1,
+                    bodyFont: { family: '"Cascadia Code", monospace' },
+                    callbacks: { label: function(ctx) {
+                        const d = dow[ctx.dataIndex];
+                        const sign = d.avg_pnl >= 0 ? '+' : '';
+                        return sign + '$' + d.avg_pnl.toFixed(2) + '  (' + d.count.toLocaleString() + ' trades)';
+                    }}}},
+            scales: {
+                x: { grid: { color: '#21262d' }, ticks: { color: '#c9d1d9', font: { family: '"Cascadia Code", monospace', size: 13 } } },
+                y: { grid: { color: '#21262d' }, ticks: { color: '#7d8590', font: { family: '"Cascadia Code", monospace' },
+                    callback: function(v) { return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2); } } }
+            }
+        }
+    });
+})();
+
 // ── Monte Carlo Chart ─────────────────────────────────
 {% if mc %}
 (function() {
@@ -877,79 +995,6 @@ const MC_DATA = {{ mc | tojson }};
     exitFilter.addEventListener('change', render);
     render();
 
-    // ── CSV Export ────────────────────────────────────
-    document.getElementById('export-csv').addEventListener('click', function() {
-        const rows = [];
-
-        // Summary stats header block
-        rows.push('# SCALPR ZEN — Backtest Export');
-        rows.push('# Strategy,' + DATA.strategy_name);
-        rows.push('# Instrument,' + (DATA.params.instrument || ''));
-        rows.push('# EMA,' + (DATA.params.fast_ema || '') + '/' + (DATA.params.slow_ema || ''));
-        rows.push('# TP Points,' + (DATA.params.tp_points || ''));
-        rows.push('# SL Points,' + (DATA.params.sl_points || ''));
-        rows.push('# Data Range,' + (DATA.params.data_range || ''));
-
-        if (DATA.summary) {
-            const s = DATA.summary;
-            rows.push('#');
-            rows.push('# SUMMARY');
-            rows.push('# Total Trades,' + s.total_trades);
-            rows.push('# Win Rate,' + (s.win_rate * 100).toFixed(1) + '%');
-            rows.push('# Winning Trades,' + s.winning_trades);
-            rows.push('# Losing Trades,' + s.losing_trades);
-            rows.push('# Total PnL,$' + s.total_pnl_dollars.toFixed(2));
-            rows.push('# Gross Profit,$' + s.gross_profit.toFixed(2));
-            rows.push('# Gross Loss,$' + s.gross_loss.toFixed(2));
-            rows.push('# Profit Factor,' + s.profit_factor.toFixed(2));
-            rows.push('# Avg Win,$' + s.avg_win.toFixed(2));
-            rows.push('# Avg Loss,$' + s.avg_loss.toFixed(2));
-            rows.push('# Max Drawdown,$' + s.max_drawdown_dollars.toFixed(2));
-            rows.push('# Max Consecutive Wins,' + s.max_consecutive_wins);
-            rows.push('# Max Consecutive Losses,' + s.max_consecutive_losses);
-            rows.push('# Sharpe Ratio,' + s.sharpe_ratio.toFixed(2));
-            rows.push('# Avg MFE (pts),' + s.avg_mfe_points.toFixed(2));
-            rows.push('# Avg MAE (pts),' + s.avg_mae_points.toFixed(2));
-            rows.push('# Buy Hold PnL,$' + s.buy_hold_pnl_dollars.toFixed(2));
-        }
-
-        if (typeof MC_DATA !== 'undefined' && MC_DATA && MC_DATA.stats) {
-            const m = MC_DATA.stats;
-            rows.push('#');
-            rows.push('# MONTE CARLO (' + m.n_simulations + ' simulations)');
-            rows.push('# P(Profit),' + (m.probability_of_profit * 100).toFixed(1) + '%');
-            rows.push('# Median Final PnL,$' + m.median_final_pnl.toFixed(2));
-            rows.push('# Final PnL 5th,$' + m.final_pnl_5th.toFixed(2));
-            rows.push('# Final PnL 25th,$' + m.final_pnl_25th.toFixed(2));
-            rows.push('# Final PnL 75th,$' + m.final_pnl_75th.toFixed(2));
-            rows.push('# Final PnL 95th,$' + m.final_pnl_95th.toFixed(2));
-            rows.push('# Median Max DD,$' + m.median_max_drawdown.toFixed(2));
-            rows.push('# Max DD 5th,$' + m.max_drawdown_5th.toFixed(2));
-            rows.push('# Max DD 95th,$' + m.max_drawdown_95th.toFixed(2));
-            rows.push('# Original Final PnL,$' + m.original_final_pnl.toFixed(2));
-            rows.push('# Original Max DD,$' + m.original_max_drawdown.toFixed(2));
-        }
-
-        rows.push('#');
-
-        // Trade data header + rows
-        rows.push('trade_num,direction,entry_time,entry_price,exit_time,exit_price,pnl_dollars,exit_reason,mfe_points,mae_points');
-        trades.forEach(t => {
-            rows.push([
-                t.num, t.dir, t.entry_time, t.entry_price.toFixed(2),
-                t.exit_time, t.exit_price.toFixed(2), t.pnl.toFixed(2),
-                t.exit, t.mfe.toFixed(2), t.mae.toFixed(2)
-            ].join(','));
-        });
-
-        const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = DATA.strategy_name.replace(/\s+/g, '_').toLowerCase() + '_trades.csv';
-        a.click();
-        URL.revokeObjectURL(url);
-    });
 })();
 </script>
 

@@ -74,6 +74,8 @@ def test_fill_pnl():
         pnl_points=10.0,
         pnl_dollars=200.0,
         exit_reason=ExitReason.TP,
+        mfe_points=10.0,
+        mae_points=0.0,
     )
     assert fill.pnl_points == 10.0
     assert fill.pnl_dollars == 200.0
@@ -96,6 +98,17 @@ def test_backtest_result_success():
         max_consecutive_wins=3,
         max_consecutive_losses=2,
         total_ticks_processed=1000000,
+        sharpe_ratio=1.5,
+        avg_mfe_points=8.0,
+        avg_mae_points=3.0,
+        buy_hold_pnl_dollars=400.0,
+        buy_hold_sharpe=1.0,
+        buy_hold_max_dd=-200.0,
+        expectancy_per_trade=50.0,
+        t_stat=2.5,
+        p_value=0.01,
+        sqn=2.0,
+        pct_days_profitable=0.55,
     )
     result = BacktestResult(
         success=True,
@@ -104,6 +117,7 @@ def test_backtest_result_success():
         params={"fast": 50, "slow": 200},
         fills=[],
         summary=summary,
+        buy_hold_equity=[],
     )
     assert result.success is True
     assert result.summary is not None
@@ -118,6 +132,7 @@ def test_backtest_result_failure():
         params={},
         fills=[],
         summary=None,
+        buy_hold_equity=[],
     )
     assert result.success is False
     assert result.error == "No data for date range"
