@@ -6,6 +6,7 @@ from threading import Timer
 
 from scalpr_zen.engine import EngineConfig, run
 from scalpr_zen.gpu import select_device
+from scalpr_zen.monte_carlo import run_monte_carlo
 from scalpr_zen.types import InstrumentSpec
 from scalpr_zen.web import create_app
 
@@ -20,6 +21,8 @@ FAST_EMA_PERIOD = 50
 SLOW_EMA_PERIOD = 200
 TP_POINTS = 10.0
 SL_POINTS = 5.0
+MONTE_CARLO_SIMS = 1000
+MONTE_CARLO_SEED = None
 # ═══════════════════════════════════════════════════════
 
 if __name__ == "__main__":
@@ -50,8 +53,18 @@ if __name__ == "__main__":
         print(f"Backtest failed: {result.error}")
     else:
         print(f"Backtest completed in {elapsed:.1f}s — {result.summary.total_trades} trades")
-        print("Starting dashboard at http://localhost:5000")
 
-        app = create_app(result)
-        Timer(1.0, lambda: webbrowser.open("http://localhost:5000")).start()
-        app.run(host="localhost", port=5000, debug=False)
+        t1 = time.perf_counter()
+        mc_result = run_monte_carlo(result, MONTE_CARLO_SIMS, MONTE_CARLO_SEED)
+        mc_elapsed = time.perf_counter() - t1
+        if mc_result.success:
+            print(f"Monte Carlo ({MONTE_CARLO_SIMS} sims) in {mc_elapsed:.1f}s")
+        else:
+            print(f"Monte Carlo skipped: {mc_result.error}")
+            mc_result = None
+
+        print("Starting dashboard at http://localhost:5001")
+
+        app = create_app(result, mc_result)
+        Timer(1.0, lambda: webbrowser.open("http://localhost:5001")).start()
+        app.run(host="localhost", port=5001, debug=False)

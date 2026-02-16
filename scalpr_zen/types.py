@@ -64,6 +64,13 @@ class BacktestSummary:
     avg_mfe_points: float
     avg_mae_points: float
     buy_hold_pnl_dollars: float
+    buy_hold_sharpe: float
+    buy_hold_max_dd: float
+    expectancy_per_trade: float
+    t_stat: float
+    p_value: float
+    sqn: float
+    pct_days_profitable: float
 
 
 @dataclass(frozen=True)

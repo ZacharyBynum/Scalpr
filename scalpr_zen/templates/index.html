@@ -153,6 +153,120 @@
             display: none;
             white-space: nowrap;
         }
+
+        /* Section divider */
+        .section-divider {
+            border: none;
+            border-top: 1px solid #21262d;
+            margin: 32px 0 24px;
+        }
+        .section-divider-label {
+            font-size: 16px;
+            font-weight: 600;
+            color: #e6edf3;
+            margin-bottom: 16px;
+        }
+
+        /* Monte Carlo chart */
+        .mc-chart-container {
+            position: relative;
+            width: 100%;
+            height: 420px;
+        }
+
+        /* Tables */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .data-table th, .data-table td {
+            padding: 8px 12px;
+            text-align: right;
+            border-bottom: 1px solid #21262d;
+        }
+        .data-table th {
+            color: #7d8590;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            background: #161b22;
+            z-index: 1;
+        }
+        .data-table th:first-child, .data-table td:first-child {
+            text-align: left;
+        }
+        .data-table td {
+            color: #c9d1d9;
+        }
+        .data-table tbody tr:hover {
+            background: #1c2128;
+        }
+
+        /* Trade log container */
+        .trade-log-wrapper {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .trade-log-wrapper::-webkit-scrollbar {
+            width: 6px;
+        }
+        .trade-log-wrapper::-webkit-scrollbar-track {
+            background: #0d1117;
+        }
+        .trade-log-wrapper::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 3px;
+        }
+        .trade-log-wrapper::-webkit-scrollbar-thumb:hover {
+            background: #484f58;
+        }
+
+        /* Trade log search/filter bar */
+        .trade-log-controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+            align-items: center;
+        }
+        .trade-log-controls select,
+        .trade-log-controls input {
+            background: #0d1117;
+            color: #c9d1d9;
+            border: 1px solid #21262d;
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-family: inherit;
+            font-size: 12px;
+        }
+        .trade-log-controls select:focus,
+        .trade-log-controls input:focus {
+            outline: none;
+            border-color: #58a6ff;
+        }
+        .export-btn {
+            background: #21262d;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+            padding: 6px 14px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .export-btn:hover {
+            background: #30363d;
+            border-color: #484f58;
+        }
+        .trade-count {
+            font-size: 12px;
+            color: #7d8590;
+            margin-left: auto;
+        }
     </style>
 </head>
 <body>
@@ -242,10 +356,124 @@
     </div>
 </div>
 
+{% if mc %}
+<hr class="section-divider">
+<div class="section-divider-label">Monte Carlo Analysis <span style="font-size:12px;color:#7d8590;font-weight:400">— {{ "{:,}".format(mc.stats.n_simulations) }} simulations</span></div>
+
+<div class="stats">
+    <div class="stat-card">
+        <div class="label">P(Profit)</div>
+        <div class="value {{ 'positive' if mc.stats.probability_of_profit >= 0.5 else 'negative' }}">
+            {{ "%.1f"|format(mc.stats.probability_of_profit * 100) }}%
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Median P&amp;L</div>
+        <div class="value {{ 'positive' if mc.stats.median_final_pnl >= 0 else 'negative' }}">
+            ${{ "{:,.0f}".format(mc.stats.median_final_pnl) }}
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="label">90% CI Range</div>
+        <div class="value">${{ "{:,.0f}".format(mc.stats.final_pnl_5th) }} to ${{ "{:,.0f}".format(mc.stats.final_pnl_95th) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Median Max DD</div>
+        <div class="value negative">${{ "{:,.0f}".format(mc.stats.median_max_drawdown) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Worst DD (95th)</div>
+        <div class="value negative">${{ "{:,.0f}".format(mc.stats.max_drawdown_95th) }}</div>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Equity Curve Confidence Bands
+        <span style="font-size:12px;color:#7d8590;font-weight:400">—
+            <span style="color:rgba(88,166,255,0.3)">5th–95th</span> |
+            <span style="color:rgba(88,166,255,0.6)">25th–75th</span> |
+            <span style="color:#58a6ff">Median</span> |
+            <span style="color:#3fb950">Original</span>
+        </span>
+    </h2>
+    <div class="mc-chart-container">
+        <canvas id="mc-chart"></canvas>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Confidence Intervals</h2>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Percentile</th>
+                <th>Final P&amp;L</th>
+                <th>Max Drawdown</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>5th</td><td>${{ "{:,.0f}".format(mc.stats.final_pnl_5th) }}</td><td>${{ "{:,.0f}".format(mc.stats.max_drawdown_5th) }}</td></tr>
+            <tr><td>25th</td><td>${{ "{:,.0f}".format(mc.stats.final_pnl_25th) }}</td><td>${{ "{:,.0f}".format(mc.stats.max_drawdown_25th) }}</td></tr>
+            <tr><td>50th (Median)</td><td>${{ "{:,.0f}".format(mc.stats.median_final_pnl) }}</td><td>${{ "{:,.0f}".format(mc.stats.median_max_drawdown) }}</td></tr>
+            <tr><td>75th</td><td>${{ "{:,.0f}".format(mc.stats.final_pnl_75th) }}</td><td>${{ "{:,.0f}".format(mc.stats.max_drawdown_75th) }}</td></tr>
+            <tr><td>95th</td><td>${{ "{:,.0f}".format(mc.stats.final_pnl_95th) }}</td><td>${{ "{:,.0f}".format(mc.stats.max_drawdown_95th) }}</td></tr>
+            <tr style="border-top:2px solid #30363d">
+                <td style="color:#3fb950">Original</td>
+                <td style="color:#3fb950">${{ "{:,.0f}".format(mc.stats.original_final_pnl) }}</td>
+                <td style="color:#3fb950">${{ "{:,.0f}".format(mc.stats.original_max_drawdown) }}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if result.trades %}
+<hr class="section-divider">
+<div class="section">
+    <h2>Trade Log</h2>
+    <div class="trade-log-controls">
+        <select id="filter-dir">
+            <option value="all">All Directions</option>
+            <option value="LONG">Long Only</option>
+            <option value="SHORT">Short Only</option>
+        </select>
+        <select id="filter-exit">
+            <option value="all">All Exits</option>
+            <option value="TP">TP Only</option>
+            <option value="SL">SL Only</option>
+        </select>
+        <button id="export-csv" class="export-btn">Export CSV</button>
+        <span class="trade-count" id="trade-count"></span>
+    </div>
+    <div class="trade-log-wrapper">
+        <table class="data-table" id="trade-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Dir</th>
+                    <th>Entry Time</th>
+                    <th>Entry Px</th>
+                    <th>Exit Time</th>
+                    <th>Exit Px</th>
+                    <th>P&amp;L</th>
+                    <th>Exit</th>
+                    <th>MFE</th>
+                    <th>MAE</th>
+                </tr>
+            </thead>
+            <tbody id="trade-tbody"></tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 <div class="tooltip" id="tooltip"></div>
 
 <script>
 const DATA = {{ result | tojson }};
+{% if mc %}
+const MC_DATA = {{ mc | tojson }};
+{% endif %}
 
 // ── Equity Curve (lightweight-charts) ──────────────────
 (function() {
@@ -453,6 +681,274 @@ const DATA = {{ result | tojson }};
         if (e.target.dataset.pnl) {
             tooltip.style.display = 'none';
         }
+    });
+})();
+
+// ── Monte Carlo Chart ─────────────────────────────────
+{% if mc %}
+(function() {
+    const ctx = document.getElementById('mc-chart').getContext('2d');
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: MC_DATA.labels,
+            datasets: [
+                {
+                    label: '95th percentile',
+                    data: MC_DATA.curve_95th,
+                    borderColor: 'transparent',
+                    backgroundColor: 'rgba(88, 166, 255, 0.08)',
+                    fill: '+4',
+                    pointRadius: 0,
+                    tension: 0.1,
+                    order: 5,
+                },
+                {
+                    label: '75th percentile',
+                    data: MC_DATA.curve_75th,
+                    borderColor: 'transparent',
+                    backgroundColor: 'rgba(88, 166, 255, 0.15)',
+                    fill: '+2',
+                    pointRadius: 0,
+                    tension: 0.1,
+                    order: 4,
+                },
+                {
+                    label: '50th percentile (Median)',
+                    data: MC_DATA.curve_50th,
+                    borderColor: '#58a6ff',
+                    borderWidth: 2,
+                    backgroundColor: 'transparent',
+                    fill: false,
+                    pointRadius: 0,
+                    tension: 0.1,
+                    order: 2,
+                },
+                {
+                    label: '25th percentile',
+                    data: MC_DATA.curve_25th,
+                    borderColor: 'transparent',
+                    backgroundColor: 'transparent',
+                    fill: false,
+                    pointRadius: 0,
+                    tension: 0.1,
+                    order: 4,
+                },
+                {
+                    label: '5th percentile',
+                    data: MC_DATA.curve_5th,
+                    borderColor: 'transparent',
+                    backgroundColor: 'transparent',
+                    fill: false,
+                    pointRadius: 0,
+                    tension: 0.1,
+                    order: 5,
+                },
+                {
+                    label: 'Original',
+                    data: MC_DATA.original,
+                    borderColor: '#3fb950',
+                    borderWidth: 2,
+                    borderDash: [6, 3],
+                    backgroundColor: 'transparent',
+                    fill: false,
+                    pointRadius: 0,
+                    tension: 0.1,
+                    order: 1,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1c2128',
+                    borderColor: '#30363d',
+                    borderWidth: 1,
+                    titleFont: { family: '"Cascadia Code", monospace', size: 12 },
+                    bodyFont: { family: '"Cascadia Code", monospace', size: 12 },
+                    callbacks: {
+                        title: function(items) {
+                            return 'Trade #' + items[0].label;
+                        },
+                        label: function(ctx) {
+                            const val = ctx.parsed.y;
+                            const sign = val >= 0 ? '+' : '';
+                            return ctx.dataset.label + ': ' + sign + '$' + val.toLocaleString(undefined, {maximumFractionDigits: 0});
+                        }
+                    },
+                    filter: function(item) {
+                        return item.dataset.borderColor !== 'transparent';
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: '#21262d' },
+                    ticks: {
+                        color: '#7d8590',
+                        font: { family: '"Cascadia Code", monospace' },
+                        maxTicksLimit: 10,
+                    },
+                    title: {
+                        display: true,
+                        text: 'Trade #',
+                        color: '#7d8590',
+                        font: { family: '"Cascadia Code", monospace', size: 12 }
+                    }
+                },
+                y: {
+                    grid: { color: '#21262d' },
+                    ticks: {
+                        color: '#7d8590',
+                        font: { family: '"Cascadia Code", monospace' },
+                        callback: function(v) {
+                            const sign = v >= 0 ? '' : '-';
+                            return sign + '$' + Math.abs(v).toLocaleString();
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Cumulative P&L ($)',
+                        color: '#7d8590',
+                        font: { family: '"Cascadia Code", monospace', size: 12 }
+                    }
+                }
+            }
+        }
+    });
+})();
+{% endif %}
+
+// ── Trade Log ─────────────────────────────────────────
+(function() {
+    const tbody = document.getElementById('trade-tbody');
+    if (!tbody) return;
+
+    const trades = DATA.trades;
+    const dirFilter = document.getElementById('filter-dir');
+    const exitFilter = document.getElementById('filter-exit');
+    const countEl = document.getElementById('trade-count');
+
+    function fmtDollar(v) {
+        const sign = v >= 0 ? '+' : '';
+        return sign + '$' + v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    function render() {
+        const dv = dirFilter.value;
+        const ev = exitFilter.value;
+        const filtered = trades.filter(t =>
+            (dv === 'all' || t.dir === dv) &&
+            (ev === 'all' || t.exit === ev)
+        );
+
+        tbody.innerHTML = '';
+        filtered.forEach(t => {
+            const tr = document.createElement('tr');
+            const pnlClass = t.pnl >= 0 ? 'positive' : 'negative';
+            const dirColor = t.dir === 'LONG' ? '#58a6ff' : '#d2a8ff';
+            const exitColor = t.exit === 'TP' ? '#3fb950' : '#f85149';
+            tr.innerHTML =
+                '<td>' + t.num + '</td>' +
+                '<td style="color:' + dirColor + '">' + t.dir + '</td>' +
+                '<td>' + t.entry_time + '</td>' +
+                '<td>' + t.entry_price.toFixed(2) + '</td>' +
+                '<td>' + t.exit_time + '</td>' +
+                '<td>' + t.exit_price.toFixed(2) + '</td>' +
+                '<td class="' + pnlClass + '">' + fmtDollar(t.pnl) + '</td>' +
+                '<td style="color:' + exitColor + '">' + t.exit + '</td>' +
+                '<td>' + t.mfe.toFixed(2) + '</td>' +
+                '<td>' + t.mae.toFixed(2) + '</td>';
+            tbody.appendChild(tr);
+        });
+
+        countEl.textContent = filtered.length + ' of ' + trades.length + ' trades';
+    }
+
+    dirFilter.addEventListener('change', render);
+    exitFilter.addEventListener('change', render);
+    render();
+
+    // ── CSV Export ────────────────────────────────────
+    document.getElementById('export-csv').addEventListener('click', function() {
+        const rows = [];
+
+        // Summary stats header block
+        rows.push('# SCALPR ZEN — Backtest Export');
+        rows.push('# Strategy,' + DATA.strategy_name);
+        rows.push('# Instrument,' + (DATA.params.instrument || ''));
+        rows.push('# EMA,' + (DATA.params.fast_ema || '') + '/' + (DATA.params.slow_ema || ''));
+        rows.push('# TP Points,' + (DATA.params.tp_points || ''));
+        rows.push('# SL Points,' + (DATA.params.sl_points || ''));
+        rows.push('# Data Range,' + (DATA.params.data_range || ''));
+
+        if (DATA.summary) {
+            const s = DATA.summary;
+            rows.push('#');
+            rows.push('# SUMMARY');
+            rows.push('# Total Trades,' + s.total_trades);
+            rows.push('# Win Rate,' + (s.win_rate * 100).toFixed(1) + '%');
+            rows.push('# Winning Trades,' + s.winning_trades);
+            rows.push('# Losing Trades,' + s.losing_trades);
+            rows.push('# Total PnL,$' + s.total_pnl_dollars.toFixed(2));
+            rows.push('# Gross Profit,$' + s.gross_profit.toFixed(2));
+            rows.push('# Gross Loss,$' + s.gross_loss.toFixed(2));
+            rows.push('# Profit Factor,' + s.profit_factor.toFixed(2));
+            rows.push('# Avg Win,$' + s.avg_win.toFixed(2));
+            rows.push('# Avg Loss,$' + s.avg_loss.toFixed(2));
+            rows.push('# Max Drawdown,$' + s.max_drawdown_dollars.toFixed(2));
+            rows.push('# Max Consecutive Wins,' + s.max_consecutive_wins);
+            rows.push('# Max Consecutive Losses,' + s.max_consecutive_losses);
+            rows.push('# Sharpe Ratio,' + s.sharpe_ratio.toFixed(2));
+            rows.push('# Avg MFE (pts),' + s.avg_mfe_points.toFixed(2));
+            rows.push('# Avg MAE (pts),' + s.avg_mae_points.toFixed(2));
+            rows.push('# Buy Hold PnL,$' + s.buy_hold_pnl_dollars.toFixed(2));
+        }
+
+        if (typeof MC_DATA !== 'undefined' && MC_DATA && MC_DATA.stats) {
+            const m = MC_DATA.stats;
+            rows.push('#');
+            rows.push('# MONTE CARLO (' + m.n_simulations + ' simulations)');
+            rows.push('# P(Profit),' + (m.probability_of_profit * 100).toFixed(1) + '%');
+            rows.push('# Median Final PnL,$' + m.median_final_pnl.toFixed(2));
+            rows.push('# Final PnL 5th,$' + m.final_pnl_5th.toFixed(2));
+            rows.push('# Final PnL 25th,$' + m.final_pnl_25th.toFixed(2));
+            rows.push('# Final PnL 75th,$' + m.final_pnl_75th.toFixed(2));
+            rows.push('# Final PnL 95th,$' + m.final_pnl_95th.toFixed(2));
+            rows.push('# Median Max DD,$' + m.median_max_drawdown.toFixed(2));
+            rows.push('# Max DD 5th,$' + m.max_drawdown_5th.toFixed(2));
+            rows.push('# Max DD 95th,$' + m.max_drawdown_95th.toFixed(2));
+            rows.push('# Original Final PnL,$' + m.original_final_pnl.toFixed(2));
+            rows.push('# Original Max DD,$' + m.original_max_drawdown.toFixed(2));
+        }
+
+        rows.push('#');
+
+        // Trade data header + rows
+        rows.push('trade_num,direction,entry_time,entry_price,exit_time,exit_price,pnl_dollars,exit_reason,mfe_points,mae_points');
+        trades.forEach(t => {
+            rows.push([
+                t.num, t.dir, t.entry_time, t.entry_price.toFixed(2),
+                t.exit_time, t.exit_price.toFixed(2), t.pnl.toFixed(2),
+                t.exit, t.mfe.toFixed(2), t.mae.toFixed(2)
+            ].join(','));
+        });
+
+        const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = DATA.strategy_name.replace(/\s+/g, '_').toLowerCase() + '_trades.csv';
+        a.click();
+        URL.revokeObjectURL(url);
     });
 })();
 </script>
