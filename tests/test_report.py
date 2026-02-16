@@ -91,8 +91,9 @@ def test_format_report_contains_header():
     result = _make_result()
     now = datetime(2026, 2, 16, 14, 30, 0, tzinfo=timezone.utc)
     text = format_report(result, now)
-    assert "SCALPR ZEN v0.1" in text
+    assert "SCALPR" in text
     assert "Backtest Report" in text
+    assert "EMA Crossover" in text
 
 
 def test_format_report_contains_parameters():
@@ -101,38 +102,57 @@ def test_format_report_contains_parameters():
     text = format_report(result, now)
     assert "NQ (E-mini Nasdaq 100)" in text
     assert "$20.00" in text
-    assert "Fast EMA:         50" in text
-    assert "Slow EMA:         200" in text
+    assert "EMA: 50/200" in text
     assert "10.00" in text  # TP
     assert "5.00" in text   # SL
 
 
-def test_format_report_contains_trades():
+def test_format_report_contains_performance():
     result = _make_result()
     now = datetime(2026, 2, 16, 14, 30, 0, tzinfo=timezone.utc)
     text = format_report(result, now)
     assert "LONG" in text
     assert "SHORT" in text
-    assert "21450.50" in text
-    assert "21460.50" in text
     assert "+$200.00" in text
     assert "-$100.00" in text
-    assert "TP" in text
-    assert "SL" in text
+    assert "50.0%" in text   # win rate
+    assert "1W / 1L" in text
+    assert "+$100.00" in text  # total P&L
+    assert "2.000" in text     # profit factor
 
 
-def test_format_report_contains_summary():
+def test_format_report_contains_sections():
     result = _make_result()
     now = datetime(2026, 2, 16, 14, 30, 0, tzinfo=timezone.utc)
     text = format_report(result, now)
-    assert "Total trades:        2" in text
-    assert "50.0%" in text
-    assert "1W / 1L" in text
-    assert "+$100.00" in text  # total P&L
-    assert "2.000" in text     # profit factor (3dp)
-    assert "Validation" in text
-    assert "t-statistic" in text
-    assert "target:" in text
+    assert "PERFORMANCE" in text
+    assert "VALIDATION" in text
+    assert "DIRECTIONAL" in text
+    assert "DURATION" in text
+    assert "EXCURSION" in text
+    assert "HOURLY" in text
+    assert "DAY OF WEEK" in text
+    assert "BUY & HOLD" in text
+    assert "MONTHLY" in text
+    assert "TOP DRAWDOWNS" in text
+    assert "AI ANALYSIS CONTEXT" in text
+
+
+def test_format_report_ai_analysis():
+    result = _make_result()
+    now = datetime(2026, 2, 16, 14, 30, 0, tzinfo=timezone.utc)
+    text = format_report(result, now)
+    # Payoff = |200/100| = 2.00
+    assert "Payoff ratio         2.00:1" in text
+    # Breakeven = 1/(1+2) = 33.3%
+    assert "Breakeven win rate   33.3%" in text
+    # Win rate gap = 50% - 33.3% = +16.7%
+    assert "above breakeven" in text
+    assert "Kelly fraction" in text
+    assert "Recovery factor" in text
+    assert "Calmar ratio" in text
+    assert "Skewness" in text
+    assert "Kurtosis" in text
 
 
 def test_format_report_failure():

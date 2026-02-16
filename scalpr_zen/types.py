@@ -115,7 +115,3 @@ class MonteCarloResult:
     curve_75th: list[float]
     curve_95th: list[float]
     original_curve: list[float]
-
-
-def snap_to_tick(price: float, tick_size: float = 0.25) -> float:
-    return round(round(price / tick_size) * tick_size, 10)

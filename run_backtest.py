@@ -6,7 +6,6 @@ import pickle
 import time
 
 from scalpr_zen.engine import EngineConfig, run
-from scalpr_zen.gpu import select_device
 from scalpr_zen.monte_carlo import run_monte_carlo, write_monte_carlo_html
 from scalpr_zen.report import write_report
 from scalpr_zen.types import InstrumentSpec
@@ -27,6 +26,8 @@ COMMISSION_PER_TRADE = 4.12     # NQ round-trip via NinjaTrader
 SLIPPAGE_TICKS = 1.0            # 1 tick slippage per entry+exit
 ENTRY_START_UTC = 14.5          # 14:30 UTC = 9:30 AM ET (EST)
 ENTRY_END_UTC = 21.0            # 21:00 UTC = 4:00 PM ET (EST)
+PROP_FIRM_TARGET = 3000.0       # profit target to pass eval
+PROP_FIRM_DRAWDOWN = 2000.0     # EOD trailing drawdown limit
 RUN_MONTE_CARLO = True
 MONTE_CARLO_SIMS = 1000
 MONTE_CARLO_SEED = None
@@ -34,8 +35,6 @@ USE_CACHE = True
 # ═══════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    select_device()
-
     instrument = InstrumentSpec(
         symbol=INSTRUMENT_SYMBOL,
         tick_size=TICK_SIZE,
@@ -111,7 +110,9 @@ if __name__ == "__main__":
                 print(f"Monte Carlo failed: {mc_result.error}")
                 mc_result = None
 
-        report_path = write_report(result, mc_result)
+        report_path = write_report(result, mc_result,
+                                    prop_target=PROP_FIRM_TARGET,
+                                    prop_drawdown=PROP_FIRM_DRAWDOWN)
         run_dir = os.path.dirname(report_path)
         print(f"Report: {report_path}")
 

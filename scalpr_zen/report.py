@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+import math
 import os
+from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
 from scalpr_zen.types import BacktestResult, Direction, MonteCarloResult
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+_SOURCE_FILES = [
+    "run_backtest.py",
+    "scalpr_zen/types.py",
+    "scalpr_zen/engine.py",
+    "scalpr_zen/gpu.py",
+    "scalpr_zen/data.py",
+    "scalpr_zen/monte_carlo.py",
+    "scalpr_zen/report.py",
+]
 
 CST = timezone(timedelta(hours=-6))
 
@@ -44,10 +58,165 @@ def _dur(secs: float) -> str:
     return f"{secs / 60:.1f}m" if secs < 3600 else f"{secs / 3600:.1f}h"
 
 
+def _prop_firm_section(
+    fills: list[Fill],
+    point_value: float,
+    profit_target: float,
+    drawdown_limit: float,
+) -> str:
+    """Simulate sequential prop firm eval attempts across all fills."""
+    if not fills:
+        return ""
+
+    L: list[str] = []
+    w = L.append
+    w(f"PROP FIRM EVAL (${profit_target:,.0f} target / ${drawdown_limit:,.0f} trailing EOD drawdown)")
+
+    attempts: list[dict] = []
+    fi = 0
+
+    while fi < len(fills):
+        balance = 0.0
+        eod_hwm = 0.0
+        floor = -drawdown_limit
+        worst_dd = 0.0
+        start_trade = fills[fi].trade_number
+        resolved = False
+        daily_log: list[tuple[str, int, float, float, float, float]] = []
+        day_trades = 0
+        day_pnl = 0.0
+        current_day: str | None = None
+
+        while fi < len(fills):
+            f = fills[fi]
+            trade_day = datetime.fromtimestamp(f.exit_time / 1e9, tz=CST).strftime("%Y-%m-%d")
+
+            # Day boundary — finalize previous day, update EOD HWM
+            if current_day is not None and trade_day != current_day:
+                eod_hwm = max(eod_hwm, balance)
+                floor = eod_hwm - drawdown_limit
+                daily_log.append((current_day, day_trades, day_pnl, balance, eod_hwm, floor))
+                day_trades = 0
+                day_pnl = 0.0
+
+            current_day = trade_day
+
+            # Mid-trade drawdown check (MAE is positive magnitude in points)
+            worst_equity = balance - f.mae_points * point_value
+            dd = worst_equity - eod_hwm
+            if dd < worst_dd:
+                worst_dd = dd
+
+            if worst_equity < floor:
+                daily_log.append((current_day, day_trades + 1, day_pnl, worst_equity, eod_hwm, floor))
+                attempts.append({
+                    "start": start_trade, "end": f.trade_number, "type": "bust",
+                    "pnl": worst_equity, "hwm": eod_hwm, "worst_dd": worst_dd,
+                    "trades": f.trade_number - start_trade + 1,
+                    "days": len(daily_log), "log": daily_log,
+                })
+                fi += 1
+                resolved = True
+                break
+
+            # Apply P&L (includes commission + slippage)
+            balance += f.pnl_dollars
+            day_trades += 1
+            day_pnl += f.pnl_dollars
+
+            # Post-trade check (costs make final balance worse than mid-trade)
+            dd_post = balance - eod_hwm
+            if dd_post < worst_dd:
+                worst_dd = dd_post
+            if balance < floor:
+                daily_log.append((current_day, day_trades, day_pnl, balance, eod_hwm, floor))
+                attempts.append({
+                    "start": start_trade, "end": f.trade_number, "type": "bust",
+                    "pnl": balance, "hwm": eod_hwm, "worst_dd": worst_dd,
+                    "trades": f.trade_number - start_trade + 1,
+                    "days": len(daily_log), "log": daily_log,
+                })
+                fi += 1
+                resolved = True
+                break
+
+            # Target hit
+            if balance >= profit_target:
+                eod_hwm = max(eod_hwm, balance)
+                daily_log.append((current_day, day_trades, day_pnl, balance, eod_hwm, eod_hwm - drawdown_limit))
+                attempts.append({
+                    "start": start_trade, "end": f.trade_number, "type": "pass",
+                    "pnl": balance, "hwm": eod_hwm, "worst_dd": worst_dd,
+                    "trades": f.trade_number - start_trade + 1,
+                    "days": len(daily_log), "log": daily_log,
+                })
+                fi += 1
+                resolved = True
+                break
+
+            fi += 1
+
+        if not resolved:
+            eod_hwm = max(eod_hwm, balance)
+            floor = eod_hwm - drawdown_limit
+            if current_day is not None:
+                daily_log.append((current_day, day_trades, day_pnl, balance, eod_hwm, floor))
+            attempts.append({
+                "start": start_trade, "end": fills[-1].trade_number, "type": "exhausted",
+                "pnl": balance, "hwm": eod_hwm, "worst_dd": worst_dd,
+                "trades": fills[-1].trade_number - start_trade + 1,
+                "days": len(daily_log), "log": daily_log,
+            })
+            break
+
+    # First attempt detail
+    first = attempts[0]
+    if first["type"] == "pass":
+        w(f"Result: PASS — hit target after {first['trades']} trades ({first['days']} trading days)")
+    elif first["type"] == "bust":
+        w(f"Result: BUST — trade #{first['end']} breached trailing limit")
+    else:
+        w(f"Result: INCOMPLETE — {first['trades']} trades, never hit target or limit")
+
+    w(f"Balance: {_d(first['pnl'])}  |  Peak EOD: {_d(first['hwm'])}  |  Worst DD: {_d(first['worst_dd'])}  |  Margin: {_d(drawdown_limit + first['worst_dd'])}")
+    w("")
+
+    # Day-by-day log (first attempt only)
+    log = first["log"]
+    if log:
+        w(f"{'Date':<13}{'#':<6}{'Day P&L':<13}{'Balance':<13}{'EOD HWM':<13}{'Floor':<13}{'DD from HWM'}")
+        for date, nt, dp, bal, hwm, fl in log:
+            w(f"{date:<13}{nt:<6}{_d(dp):<13}{_d(bal):<13}{_d(hwm):<13}{_d(fl):<13}{_d(bal - hwm)}")
+    w("")
+
+    # Multi-attempt summary
+    n_pass = sum(1 for a in attempts if a["type"] == "pass")
+    n_bust = sum(1 for a in attempts if a["type"] == "bust")
+    n_inc = len(attempts) - n_pass - n_bust
+    resolved_count = n_pass + n_bust
+    pass_rate = n_pass / resolved_count if resolved_count > 0 else 0
+
+    w(f"All attempts: {n_pass} PASS / {n_bust} BUST" +
+      (f" / {n_inc} incomplete" if n_inc else "") +
+      f" ({pass_rate:.0%} pass rate)")
+    for idx, a in enumerate(attempts):
+        if a["type"] == "pass":
+            w(f"  #{idx+1}: PASS  {a['trades']:>4} trades / {a['days']:>3} days  {_d(a['pnl']):>12}")
+        elif a["type"] == "bust":
+            w(f"  #{idx+1}: BUST  trade #{a['end']:<5}  {_d(a['pnl']):>12}  (HWM {_d(a['hwm'])})")
+        else:
+            w(f"  #{idx+1}: INC   {a['trades']:>4} trades  {_d(a['pnl']):>12}")
+    w("")
+
+    return "\n".join(L)
+
+
 def format_report(
     result: BacktestResult,
     run_timestamp: datetime,
     mc: MonteCarloResult | None = None,
+    prop_target: float | None = None,
+    prop_drawdown: float | None = None,
 ) -> str:
     L: list[str] = []
     w = L.append
@@ -139,6 +308,10 @@ def format_report(
     w(_r("Days profitable", f"{s.pct_days_profitable:.1%}", ">= 50%", _grade(s.pct_days_profitable, 0.50, True)))
     w("")
 
+    # Prop firm eval
+    if prop_target is not None and prop_drawdown is not None:
+        w(_prop_firm_section(fills, pv, prop_target, prop_drawdown))
+
     # Directional
     longs = [f for f in fills if f.direction == Direction.LONG]
     shorts = [f for f in fills if f.direction == Direction.SHORT]
@@ -226,6 +399,105 @@ def format_report(
     w(f"Buy&Hold: {_d(s.buy_hold_pnl_dollars)} | Sharpe: {s.buy_hold_sharpe:.2f} | Max DD: {_d(s.buy_hold_max_dd)}")
     w("")
 
+    # Monthly breakdown
+    mt: defaultdict[str, int] = defaultdict(int)
+    mp: defaultdict[str, float] = defaultdict(float)
+    mw: defaultdict[str, int] = defaultdict(int)
+    for f in fills:
+        key = datetime.fromtimestamp(f.entry_time / 1e9, tz=CST).strftime("%Y-%m")
+        mt[key] += 1
+        mp[key] += f.pnl_dollars
+        if f.pnl_dollars > 0:
+            mw[key] += 1
+
+    w("MONTHLY")
+    w(f"{'Month':<10}{'Trades':<10}{'Win%':<8}{'P&L':<16}{'Avg'}")
+    for key in sorted(mt):
+        n = mt[key]
+        w(f"{key:<10}{n:<10,}{mw[key] / n:<8.1%}{_d(mp[key]):<16}{_d(mp[key] / n)}")
+    w("")
+
+    # Top drawdowns
+    equity = 0.0
+    peak = 0.0
+    dd_start_idx = 0
+    drawdowns: list[tuple[float, int, int, int]] = []  # (depth, start_fill, trough_fill, recovery_fill)
+    in_dd = False
+    trough_idx = 0
+    trough_equity = 0.0
+
+    for i, f in enumerate(fills):
+        equity += f.pnl_dollars
+        if equity > peak:
+            if in_dd:
+                drawdowns.append((trough_equity - peak, dd_start_idx, trough_idx, i))
+            peak = equity
+            in_dd = False
+        else:
+            if not in_dd:
+                dd_start_idx = i
+                in_dd = True
+                trough_equity = equity
+                trough_idx = i
+            if equity < trough_equity:
+                trough_equity = equity
+                trough_idx = i
+
+    if in_dd:
+        drawdowns.append((trough_equity - peak, dd_start_idx, trough_idx, len(fills) - 1))
+
+    drawdowns.sort(key=lambda x: x[0])
+    w("TOP DRAWDOWNS")
+    w(f"{'#':<4}{'Depth':<16}{'Start':<24}{'Trough':<24}{'Recovery':<24}{'Trades'}")
+    for rank, (depth, si, ti, ri) in enumerate(drawdowns[:5], 1):
+        start_dt = datetime.fromtimestamp(fills[si].entry_time / 1e9, tz=CST).strftime("%Y-%m-%d %I:%M %p")
+        trough_dt = datetime.fromtimestamp(fills[ti].entry_time / 1e9, tz=CST).strftime("%Y-%m-%d %I:%M %p")
+        if ri < len(fills) - 1 or not in_dd or rank > 1:
+            recov_dt = datetime.fromtimestamp(fills[ri].exit_time / 1e9, tz=CST).strftime("%Y-%m-%d %I:%M %p")
+        else:
+            recov_dt = "(ongoing)"
+        w(f"{rank:<4}{_d(depth):<16}{start_dt:<24}{trough_dt:<24}{recov_dt:<24}{ri - si + 1}")
+    w("")
+
+    # AI analysis context
+    payoff = abs(s.avg_win / s.avg_loss) if s.avg_loss != 0 else float("inf")
+    breakeven_wr = 1.0 / (1.0 + payoff) if payoff != float("inf") else 0.0
+    wr_gap = s.win_rate - breakeven_wr
+    kelly = s.win_rate - (1.0 - s.win_rate) / payoff if payoff > 0 and payoff != float("inf") else 0.0
+    recovery = s.total_pnl_dollars / abs(s.max_drawdown_dollars) if s.max_drawdown_dollars != 0 else 0.0
+
+    # Annualized return for Calmar
+    first_ts = fills[0].entry_time / 1e9
+    last_ts = fills[-1].exit_time / 1e9
+    years = (last_ts - first_ts) / (365.25 * 86400)
+    ann_return = s.total_pnl_dollars / years if years > 0 else 0.0
+    calmar = ann_return / abs(s.max_drawdown_dollars) if s.max_drawdown_dollars != 0 else 0.0
+
+    # Skewness and kurtosis
+    n_t = len(pnls)
+    mean_pnl = sum(pnls) / n_t
+    var_pnl = sum((x - mean_pnl) ** 2 for x in pnls) / n_t
+    std_pnl = math.sqrt(var_pnl) if var_pnl > 0 else 0.0
+    if std_pnl > 0 and n_t > 2:
+        skew = sum((x - mean_pnl) ** 3 for x in pnls) / (n_t * std_pnl ** 3)
+        kurt = sum((x - mean_pnl) ** 4 for x in pnls) / (n_t * std_pnl ** 4) - 3.0
+    else:
+        skew = 0.0
+        kurt = 0.0
+
+    w("AI ANALYSIS CONTEXT")
+    w(f"Payoff ratio         {payoff:.2f}:1")
+    w(f"Breakeven win rate   {breakeven_wr:.1%}")
+    w(f"Win rate gap         {wr_gap:+.1%} ({'above' if wr_gap > 0 else 'below'} breakeven)")
+    w(f"Kelly fraction       {kelly:.3f}" + (" (do not trade)" if kelly <= 0 else f" ({kelly:.1%} of capital)"))
+    w(f"Recovery factor      {recovery:.2f}" + (" (negative P&L)" if s.total_pnl_dollars < 0 else ""))
+    w(f"Calmar ratio         {calmar:.2f}")
+    w(f"Skewness             {skew:.3f}")
+    w(f"Kurtosis             {kurt:.3f}")
+    w(f"Annualized return    {_d(ann_return)}")
+    w(f"Test duration        {years:.2f} years ({n_t:,} trades)")
+    w("")
+
     # Monte Carlo
     if mc and mc.success and mc.stats:
         ms = mc.stats
@@ -254,10 +526,31 @@ def _format_trade_log(result: BacktestResult) -> str:
     return "\n".join(L)
 
 
+def _format_source_bundle() -> str:
+    L: list[str] = []
+    w = L.append
+    w("SCALPR — Source Code")
+    w(f"Generated: {datetime.now(tz=CST).strftime('%Y-%m-%d %I:%M:%S %p')} CST")
+    w("")
+    for rel in _SOURCE_FILES:
+        path = _PROJECT_ROOT / rel
+        w(f"{'═' * 80}")
+        w(f"FILE: {rel}")
+        w(f"{'═' * 80}")
+        if path.exists():
+            w(path.read_text(encoding="utf-8"))
+        else:
+            w(f"(file not found)")
+        w("")
+    return "\n".join(L)
+
+
 def write_report(
     result: BacktestResult,
     mc: MonteCarloResult | None = None,
     output_dir: str = "results",
+    prop_target: float | None = None,
+    prop_drawdown: float | None = None,
 ) -> str:
     now = datetime.now(tz=timezone.utc)
     now_cst = now.astimezone(CST)
@@ -266,10 +559,13 @@ def write_report(
     os.makedirs(run_dir, exist_ok=True)
 
     with open(os.path.join(run_dir, "report.txt"), "w", encoding="utf-8") as f:
-        f.write(format_report(result, now, mc))
+        f.write(format_report(result, now, mc, prop_target, prop_drawdown))
 
     if result.fills:
         with open(os.path.join(run_dir, "trades.txt"), "w", encoding="utf-8") as f:
             f.write(_format_trade_log(result))
+
+    with open(os.path.join(run_dir, "source.txt"), "w", encoding="utf-8") as f:
+        f.write(_format_source_bundle())
 
     return os.path.join(run_dir, "report.txt")

@@ -6,33 +6,7 @@ from scalpr_zen.types import (
     ExitReason,
     Fill,
     InstrumentSpec,
-    snap_to_tick,
 )
-
-
-def test_snap_to_tick_exact():
-    assert snap_to_tick(21450.25) == 21450.25
-
-
-def test_snap_to_tick_rounds_down():
-    assert snap_to_tick(21450.30) == 21450.25
-
-
-def test_snap_to_tick_rounds_up():
-    assert snap_to_tick(21450.40) == 21450.50
-
-
-def test_snap_to_tick_midpoint_rounds_to_even():
-    # 21450.375 is exactly between .25 and .50 — Python rounds to even → .50
-    assert snap_to_tick(21450.375) == 21450.50
-
-
-def test_snap_to_tick_whole_number():
-    assert snap_to_tick(21450.0) == 21450.0
-
-
-def test_snap_to_tick_custom_tick_size():
-    assert snap_to_tick(100.3, tick_size=0.5) == 100.5
 
 
 def test_direction_values():

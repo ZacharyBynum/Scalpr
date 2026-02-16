@@ -4,10 +4,6 @@ import numpy as np
 from numba import njit, prange
 
 
-def select_device() -> None:
-    pass
-
-
 @njit(cache=True)
 def compute_ema(prices: np.ndarray, period: int) -> np.ndarray:
     n = len(prices)
