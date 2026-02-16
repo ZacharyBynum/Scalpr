@@ -23,6 +23,8 @@ SLOW_EMA_PERIOD = 200
 TP_POINTS = 10.0
 SL_POINTS = 5.0
 INITIAL_CAPITAL = 50000.0
+COMMISSION_PER_TRADE = 4.12     # NQ round-trip via NinjaTrader
+SLIPPAGE_TICKS = 1.0            # 1 tick slippage per entry+exit
 ENTRY_START_UTC = 14.5          # 14:30 UTC = 9:30 AM ET (EST)
 ENTRY_END_UTC = 21.0            # 21:00 UTC = 4:00 PM ET (EST)
 RUN_MONTE_CARLO = True
@@ -48,6 +50,8 @@ if __name__ == "__main__":
         slow_period=SLOW_EMA_PERIOD,
         cache_path=CACHE_PATH,
         initial_capital=INITIAL_CAPITAL,
+        commission_per_trade=COMMISSION_PER_TRADE,
+        slippage_ticks=SLIPPAGE_TICKS,
         entry_start_utc=ENTRY_START_UTC,
         entry_end_utc=ENTRY_END_UTC,
     )
@@ -57,6 +61,7 @@ if __name__ == "__main__":
     bt_key = (
         f"{CACHE_PATH}:{npz_mtime}:{INSTRUMENT_SYMBOL}:{TICK_SIZE}:{POINT_VALUE}"
         f":{FAST_EMA_PERIOD}:{SLOW_EMA_PERIOD}:{TP_POINTS}:{SL_POINTS}:{INITIAL_CAPITAL}"
+        f":{COMMISSION_PER_TRADE}:{SLIPPAGE_TICKS}"
         f":{ENTRY_START_UTC}:{ENTRY_END_UTC}"
     )
     bt_hash = hashlib.sha256(bt_key.encode()).hexdigest()[:16]
@@ -92,20 +97,26 @@ if __name__ == "__main__":
         print(f"  {s.total_trades} trades, {s.win_rate:.1%} win rate, "
               f"P&L: ${s.total_pnl_dollars:,.2f}, PF: {s.profit_factor:.2f}")
 
-        report_path = write_report(result)
-        print(f"Report: {report_path}")
-
+        mc_result = None
         if RUN_MONTE_CARLO:
             t1 = time.perf_counter()
             mc_result = run_monte_carlo(result, MONTE_CARLO_SIMS, MONTE_CARLO_SEED)
             mc_elapsed = time.perf_counter() - t1
             if mc_result.success:
-                mc_path = write_monte_carlo_html(mc_result)
-                print(f"Monte Carlo ({MONTE_CARLO_SIMS} sims) in {mc_elapsed:.1f}s. Report: {mc_path}")
+                print(f"Monte Carlo ({MONTE_CARLO_SIMS} sims) in {mc_elapsed:.1f}s")
                 print(f"  P(Profit): {mc_result.stats.probability_of_profit:.1%}, "
                       f"Median P&L: ${mc_result.stats.median_final_pnl:,.0f}, "
                       f"Median DD: ${mc_result.stats.median_max_drawdown:,.0f}")
             else:
                 print(f"Monte Carlo failed: {mc_result.error}")
+                mc_result = None
+
+        report_path = write_report(result, mc_result)
+        run_dir = os.path.dirname(report_path)
+        print(f"Report: {report_path}")
+
+        if mc_result:
+            mc_path = write_monte_carlo_html(mc_result, output_dir=run_dir)
+            print(f"Monte Carlo chart: {mc_path}")
 
         os.startfile(report_path)

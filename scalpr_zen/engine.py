@@ -28,7 +28,9 @@ class EngineConfig:
     slow_period: int
     cache_path: str
     initial_capital: float = 0.0
-    entry_start_utc: float | None = None  # hour of day, e.g. 14.5 = 14:30 UTC
+    commission_per_trade: float = 0.0  # dollars per round-trip
+    slippage_ticks: float = 0.0       # ticks of slippage per entry+exit
+    entry_start_utc: float | None = None
     entry_end_utc: float | None = None
 
 
@@ -216,6 +218,8 @@ def run(config: EngineConfig) -> BacktestResult:
         "sl_points": config.sl_points,
         "warmup_ticks": config.slow_period,
         "initial_capital": config.initial_capital,
+        "commission_per_trade": config.commission_per_trade,
+        "slippage_ticks": config.slippage_ticks,
         "entry_start_utc": config.entry_start_utc,
         "entry_end_utc": config.entry_end_utc,
     }
@@ -318,6 +322,8 @@ def run(config: EngineConfig) -> BacktestResult:
 
     # 8. Build Fill objects
     point_value = config.instrument.point_value
+    slippage_cost = config.slippage_ticks * config.instrument.tick_size * point_value
+    commission = config.commission_per_trade
     fills: list[Fill] = []
     trade_num = 0
     for i in range(len(all_indices)):
@@ -343,7 +349,7 @@ def run(config: EngineConfig) -> BacktestResult:
             exit_time=int(timestamps[exit_indices[i]]),
             exit_price=exit_price,
             pnl_points=pnl_points,
-            pnl_dollars=pnl_points * point_value,
+            pnl_dollars=pnl_points * point_value - commission - slippage_cost,
             exit_reason=exit_reason,
             mfe_points=float(mfe_arr[i]),
             mae_points=float(mae_arr[i]),
