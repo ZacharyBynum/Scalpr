@@ -16,11 +16,12 @@ def _simulate_equity_curves(
     pnl_array: np.ndarray, n_simulations: int, rng: np.random.Generator
 ) -> np.ndarray:
     n_trades = len(pnl_array)
+    shuffled = np.empty((n_simulations, n_trades), dtype=np.float64)
+    for i in range(n_simulations):
+        shuffled[i] = rng.permutation(pnl_array)
     curves = np.empty((n_simulations, n_trades + 1), dtype=np.float64)
     curves[:, 0] = 0.0
-    for i in range(n_simulations):
-        shuffled = rng.permutation(pnl_array)
-        curves[i, 1:] = np.cumsum(shuffled)
+    curves[:, 1:] = np.cumsum(shuffled, axis=1)
     return curves
 
 
@@ -42,19 +43,22 @@ def _compute_stats(
     original_peak = np.maximum.accumulate(original_cum)
     original_max_dd = float(np.max(original_peak - original_cum))
 
+    pnl_pcts = np.percentile(final_pnls, [5, 25, 50, 75, 95])
+    dd_pcts = np.percentile(max_dds, [5, 25, 50, 75, 95])
+
     return MonteCarloStats(
         n_simulations=n_simulations,
         probability_of_profit=float(np.mean(final_pnls > 0)),
-        median_final_pnl=float(np.percentile(final_pnls, 50)),
-        final_pnl_5th=float(np.percentile(final_pnls, 5)),
-        final_pnl_25th=float(np.percentile(final_pnls, 25)),
-        final_pnl_75th=float(np.percentile(final_pnls, 75)),
-        final_pnl_95th=float(np.percentile(final_pnls, 95)),
-        median_max_drawdown=float(np.percentile(max_dds, 50)),
-        max_drawdown_5th=float(np.percentile(max_dds, 5)),
-        max_drawdown_25th=float(np.percentile(max_dds, 25)),
-        max_drawdown_75th=float(np.percentile(max_dds, 75)),
-        max_drawdown_95th=float(np.percentile(max_dds, 95)),
+        median_final_pnl=float(pnl_pcts[2]),
+        final_pnl_5th=float(pnl_pcts[0]),
+        final_pnl_25th=float(pnl_pcts[1]),
+        final_pnl_75th=float(pnl_pcts[3]),
+        final_pnl_95th=float(pnl_pcts[4]),
+        median_max_drawdown=float(dd_pcts[2]),
+        max_drawdown_5th=float(dd_pcts[0]),
+        max_drawdown_25th=float(dd_pcts[1]),
+        max_drawdown_75th=float(dd_pcts[3]),
+        max_drawdown_95th=float(dd_pcts[4]),
         original_final_pnl=original_final,
         original_max_drawdown=original_max_dd,
     )
@@ -70,11 +74,8 @@ def _downsample(arr: np.ndarray, max_points: int) -> list[float]:
 def _extract_percentile_curves(
     curves: np.ndarray, original_pnl: np.ndarray, max_points: int = 2000
 ) -> tuple[list[float], list[float], list[float], list[float], list[float], list[float]]:
-    p5 = np.percentile(curves, 5, axis=0)
-    p25 = np.percentile(curves, 25, axis=0)
-    p50 = np.percentile(curves, 50, axis=0)
-    p75 = np.percentile(curves, 75, axis=0)
-    p95 = np.percentile(curves, 95, axis=0)
+    all_pcts = np.percentile(curves, [5, 25, 50, 75, 95], axis=0)
+    p5, p25, p50, p75, p95 = all_pcts[0], all_pcts[1], all_pcts[2], all_pcts[3], all_pcts[4]
     original = np.concatenate(([0.0], np.cumsum(original_pnl)))
 
     return (
@@ -559,4 +560,4 @@ def write_monte_carlo_html(
 
 
 def _round_list(values: list[float]) -> list[float]:
-    return [round(v, 2) for v in values]
+    return np.round(np.asarray(values), 2).tolist()

@@ -39,7 +39,7 @@ def _load_one_day(
     filtered = df.loc[mask]
     if filtered.empty:
         return np.array([], dtype=np.float32), np.array([], dtype=np.int64)
-    prices = filtered["price"].to_numpy(dtype=np.float64).astype(np.float32)
+    prices = filtered["price"].to_numpy(dtype=np.float32)
     timestamps = filtered["ts_event"].astype(np.int64).to_numpy()
     return prices, timestamps
 
@@ -78,12 +78,14 @@ def preprocess_to_cache(
         # Collect results preserving original order
         results_by_idx: dict[int, tuple[np.ndarray, np.ndarray]] = {}
         done_count = 0
+        ticks_so_far = 0
         for future in as_completed(futures):
             idx = futures[future]
-            results_by_idx[idx] = future.result()
+            result = future.result()
+            results_by_idx[idx] = result
+            ticks_so_far += len(result[0])
             done_count += 1
             if done_count % 20 == 0 or done_count == len(tasks):
-                ticks_so_far = sum(len(r[0]) for r in results_by_idx.values())
                 print(f"  Loaded {done_count}/{len(tasks)} days... {ticks_so_far:,} ticks so far")
 
     rollover_indices: list[int] = []

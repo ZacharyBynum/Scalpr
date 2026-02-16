@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
@@ -105,30 +104,31 @@ def _compute_summary(
             pct_days_profitable=0.0,
         )
 
-    wins = [f for f in fills if f.pnl_dollars > 0]
-    losses = [f for f in fills if f.pnl_dollars <= 0]
-    gross_profit = sum(f.pnl_dollars for f in wins)
-    gross_loss = sum(f.pnl_dollars for f in losses)
+    # Extract fill data into numpy arrays upfront
+    pnl_arr = np.array([f.pnl_dollars for f in fills], dtype=np.float64)
+    exit_times = np.array([f.exit_time for f in fills], dtype=np.int64)
+    mfe_points = np.array([f.mfe_points for f in fills], dtype=np.float64)
+    mae_points = np.array([f.mae_points for f in fills], dtype=np.float64)
 
-    # Max drawdown
-    equity = 0.0
-    peak = 0.0
-    max_dd = 0.0
-    for f in fills:
-        equity += f.pnl_dollars
-        if equity > peak:
-            peak = equity
-        dd = equity - peak
-        if dd < max_dd:
-            max_dd = dd
+    total = len(pnl_arr)
+    wins_mask = pnl_arr > 0
+    n_wins = int(np.sum(wins_mask))
+    n_losses = total - n_wins
+    gross_profit = float(np.sum(pnl_arr[wins_mask]))
+    gross_loss = float(np.sum(pnl_arr[~wins_mask]))
+
+    # Max drawdown (vectorized)
+    equity = np.cumsum(pnl_arr)
+    peak = np.maximum.accumulate(equity)
+    max_dd = float(np.min(equity - peak))
 
     # Consecutive streaks
     max_consec_w = 0
     max_consec_l = 0
     cur_w = 0
     cur_l = 0
-    for f in fills:
-        if f.pnl_dollars > 0:
+    for w in wins_mask:
+        if w:
             cur_w += 1
             cur_l = 0
         else:
@@ -139,40 +139,39 @@ def _compute_summary(
         if cur_l > max_consec_l:
             max_consec_l = cur_l
 
-    n_wins = len(wins)
-    n_losses = len(losses)
-    total = n_wins + n_losses
+    # Daily P&L aggregation (vectorized day index computation)
+    day_indices = exit_times // 86_400_000_000_000
+    unique_days, inverse = np.unique(day_indices, return_inverse=True)
+    daily_sums = np.bincount(inverse, weights=pnl_arr).astype(np.float64)
 
-    # Sharpe ratio from daily P&L
-    daily_pnl: defaultdict[str, float] = defaultdict(float)
-    for f in fills:
-        date_str = datetime.fromtimestamp(
-            f.exit_time / 1e9, tz=timezone.utc
-        ).strftime("%Y-%m-%d")
-        daily_pnl[date_str] += f.pnl_dollars
+    n_active_days = len(unique_days)
+    n_zero_days = n_trading_days - n_active_days
+    if n_zero_days > 0:
+        daily_values = np.concatenate([daily_sums, np.zeros(n_zero_days, dtype=np.float64)])
+    else:
+        daily_values = daily_sums
 
-    daily_values = list(daily_pnl.values())
-    n_zero_days = n_trading_days - len(daily_values)
-    daily_values.extend([0.0] * n_zero_days)
+    # Sharpe ratio
     if len(daily_values) > 1:
-        mean_d = sum(daily_values) / len(daily_values)
-        var_d = sum((x - mean_d) ** 2 for x in daily_values) / (len(daily_values) - 1)
-        std_d = math.sqrt(var_d)
+        mean_d = float(np.mean(daily_values))
+        std_d = float(np.std(daily_values, ddof=1))
         sharpe = (mean_d / std_d) * math.sqrt(252) if std_d > 0 else 0.0
     else:
         sharpe = 0.0
 
-    avg_mfe = sum(f.mfe_points for f in fills) / total
-    avg_mae = sum(f.mae_points for f in fills) / total
+    avg_mfe = float(np.mean(mfe_points))
+    avg_mae = float(np.mean(mae_points))
 
     # Validation metrics
-    mean_pnl = (gross_profit + gross_loss) / total
-    var_pnl = sum((f.pnl_dollars - mean_pnl) ** 2 for f in fills) / (total - 1) if total > 1 else 0.0
-    std_pnl = math.sqrt(var_pnl) if var_pnl > 0 else 0.0
+    mean_pnl = float(np.mean(pnl_arr))
+    if total > 1:
+        std_pnl = float(np.std(pnl_arr, ddof=1))
+    else:
+        std_pnl = 0.0
     t_stat_val = (mean_pnl / (std_pnl / math.sqrt(total))) if std_pnl > 0 else 0.0
     p_val = 2.0 * (1.0 - 0.5 * math.erfc(-abs(t_stat_val) / math.sqrt(2))) if t_stat_val != 0 else 1.0
     sqn_val = math.sqrt(min(total, 100)) * mean_pnl / std_pnl if std_pnl > 0 else 0.0
-    pct_days_prof = sum(1 for v in daily_values if v > 0) / len(daily_values) if daily_values else 0.0
+    pct_days_prof = float(np.sum(daily_values > 0)) / len(daily_values) if len(daily_values) > 0 else 0.0
 
     return BacktestSummary(
         total_trades=total,
@@ -350,6 +349,14 @@ def run(config: EngineConfig) -> BacktestResult:
     close_indices = np.append(day_changes, len(days) - 1)
     close_timestamps = timestamps[close_indices]
 
+    # Batch-convert timestamps to date strings via numpy datetime64
+    date_strings = (
+        close_timestamps.astype("datetime64[ns]")
+        .astype("datetime64[D]")
+        .astype(str)
+        .tolist()
+    )
+
     running_pnl = 0.0
     seg_idx = 0
     seg_first_price = float(prices[seg_boundaries[0]])
@@ -357,7 +364,7 @@ def run(config: EngineConfig) -> BacktestResult:
     bh_daily_values: list[float] = []
     prev_equity = 0.0
 
-    for ci in close_indices:
+    for j, ci in enumerate(close_indices):
         # Advance to the correct segment for this close index
         while seg_idx < len(seg_boundaries) - 2 and ci >= seg_boundaries[seg_idx + 1]:
             seg_end = seg_boundaries[seg_idx + 1]
@@ -366,10 +373,7 @@ def run(config: EngineConfig) -> BacktestResult:
             seg_first_price = float(prices[seg_boundaries[seg_idx]])
 
         equity = running_pnl + (float(prices[ci]) - seg_first_price) * point_value
-        date_str = datetime.fromtimestamp(
-            int(close_timestamps[len(buy_hold_equity)]) / 1e9, tz=timezone.utc
-        ).strftime("%Y-%m-%d")
-        buy_hold_equity.append((date_str, round(equity, 2)))
+        buy_hold_equity.append((date_strings[j], round(equity, 2)))
         bh_daily_values.append(equity - prev_equity)
         prev_equity = equity
 
